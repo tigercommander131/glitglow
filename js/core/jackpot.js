@@ -10,7 +10,12 @@ if (fbReady){
   db.ref("jackpot/pool").on("value", s => {
     const v = s.val();
     if (typeof v === "number"){ jkPool = v; jkPaint(); }
-    else db.ref("jackpot/pool").set(JK_SEED);
+    else {
+      // missing pool: show the seed locally; only a signed-in client may seed the
+      // DB (rules), and a guest's denied set would loop via optimistic-revert
+      jkPool = JK_SEED; jkPaint();
+      if (user) db.ref("jackpot/pool").set(JK_SEED);
+    }
   });
 }
 function jkFeed(n){

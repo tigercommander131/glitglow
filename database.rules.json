@@ -1,0 +1,40 @@
+{
+  "rules": {
+    "users": {
+      ".read": true,
+      ".indexOn": "chips",
+      "$uid": {
+        "pub": { ".write": false },
+        "$field": { ".write": "auth != null && auth.uid === $uid" }
+      }
+    },
+    "jackpot": {
+      ".read": true,
+      "pool": { ".write": "auth != null && newData.isNumber()" },
+      "last": { ".write": "auth != null" }
+    },
+    "duels": {
+      "open": {
+        ".read": "auth != null",
+        ".write": false
+      },
+      "live": {
+        "$id": {
+          ".read": "auth != null",
+          ".write": "auth != null && data.child('settled').val() === true && !newData.exists()",
+          "moves": {
+            "$move": {
+              ".write": "auth != null && !data.exists() && (data.parent().parent().child('host/uid').val() === auth.uid || data.parent().parent().child('guest/uid').val() === auth.uid) && data.parent().parent().child('state').val() === 'play'"
+            }
+          }
+        }
+      }
+    },
+    "tourney": {
+      "$day": {
+        ".read": "auth != null",
+        ".write": false
+      }
+    }
+  }
+}

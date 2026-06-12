@@ -2,9 +2,12 @@
 const TN_BUYIN = 1000, TN_HANDS = 10, TN_START = 500, TN_BET = 50;
 let tnPlayers = {}, tnScores = {}, tnRefP = null, tnRefS = null, tnDay = null;
 let tnRng = null, tnStack = 0, tnHandN = 0, tnMe = [], tnDl = [], tnLive = false;
+let tnMoves = []; // hits per hand — submitted to the server, which replays the run from the public day seed
 function tnDayKey(t){
+  // UTC, matching the server — the day boundary picks the shoe seed, so every
+  // player (and the replay in Cloud Functions) must agree on what "today" is
   const d = t || new Date();
-  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+  return d.getUTCFullYear() + "-" + String(d.getUTCMonth()+1).padStart(2,"0") + "-" + String(d.getUTCDate()).padStart(2,"0");
 }
 function tnInit(){
   tnDay = tnDayKey();
@@ -40,28 +43,32 @@ function tnButtons(){
   $("tnenter").style.display = entered ? "none" : "";
   $("tnplay").style.display = entered && !played && !tnLive ? "" : "none";
 }
-function tnEnter(){
+async function tnEnter(){
   if (!fbReady || !user){ toast("Sign in first"); return; }
   if (tnPlayers[user.uid]) return;
   if (chips < TN_BUYIN){ toast("Need " + fmt(TN_BUYIN) + " chips to enter"); return; }
-  chips -= TN_BUYIN; saveChips(); chipToss(); SND.chips(3);
-  db.ref("tourney/"+tnDay+"/players/"+user.uid).set({ name: displayName || "Player", at: Date.now() });
-  toast("🏆 You're in — play your run any time today");
+  try {
+    await callFn("tnEnter", { name: displayName || "Player" }); // server escrows the buy-in
+    chipToss(); SND.chips(3);
+    toast("🏆 You're in — play your run any time today");
+  } catch(e){ toast(e.message || "Couldn't enter"); }
 }
-function tnPlay(){
+async function tnPlay(){
   if (tnLive || !user || tnScores[user.uid]) return;
+  try {
+    await callFn("tnBegin", { name: displayName || "Player" }); // server locks the single attempt
+  } catch(e){ toast(e.message || "Couldn't start run"); return; }
   tnLive = true;
   // everyone draws from the same seeded shoe — same luck for all
   tnRng = mulberry32(hashStr("gg-gauntlet-" + tnDay));
-  tnStack = TN_START; tnHandN = 0;
-  // placeholder score locks the single attempt even if they bail mid-run
-  db.ref("tourney/"+tnDay+"/scores/"+user.uid).set({ name: displayName || "Player", score: 0, at: Date.now() });
+  tnStack = TN_START; tnHandN = 0; tnMoves = [];
   $("tnrun").style.display = ""; $("tnplay").style.display = "none";
   tnNextHand();
 }
 function tnNextHand(){
   tnHandN++;
   if (tnHandN > TN_HANDS || tnStack < TN_BET){ tnFinish(); return; }
+  tnMoves.push(0);
   tnStack -= TN_BET;
   tnMe = [seededCard(tnRng), seededCard(tnRng)];
   tnDl = [seededCard(tnRng), seededCard(tnRng)];
@@ -76,6 +83,7 @@ function tnPaint(showHole){
   tnDl.forEach((c, i) => $("tndealer").appendChild(cardEl(c, !showHole && i === 1)));
 }
 function tnHit(){
+  tnMoves[tnMoves.length-1]++;
   tnMe.push(seededCard(tnRng));
   tnPaint(false);
   if (hvVal(tnMe) > 21) tnSettle();
@@ -95,12 +103,15 @@ function tnSettle(){
   $("tnstack").textContent = fmt(tnStack);
   setTimeout(tnNextHand, 1300);
 }
-function tnFinish(){
+async function tnFinish(){
   tnLive = false;
   $("tnrun").style.display = "none";
-  db.ref("tourney/"+tnDay+"/scores/"+user.uid).set({ name: displayName || "Player", score: tnStack, at: Date.now() });
-  toast("🏆 Gauntlet done — final stack " + fmt(tnStack));
-  SND.win(tnStack > TN_START);
+  try {
+    // the server replays the run from the day seed + our moves and writes the score itself
+    const r = await callFn("tnSubmit", { moves: tnMoves });
+    toast("🏆 Gauntlet done — final stack " + fmt(r.score));
+    SND.win(r.score > TN_START);
+  } catch(e){ toast(e.message || "Couldn't submit run"); }
 }
 async function tnCheckClaim(){
   if (!fbReady || !user) return;
@@ -122,17 +133,13 @@ async function tnCheckClaim(){
   } catch(e){}
 }
 async function tnClaim(){
-  const btn = $("tnclaim"), share = +btn.dataset.share, day = btn.dataset.day;
-  if (!share || !day || !user) return;
+  const btn = $("tnclaim");
+  if (!user) return;
   btn.style.display = "none";
-  // claims/$uid is the idempotency record — a transaction makes sure a double-click,
-  // a re-render, or a second device can only ever pay the prize once
-  let res;
   try {
-    res = await db.ref("tourney/"+day+"/claims/"+user.uid).transaction(v => v == null ? share : undefined);
-  } catch(e){ btn.style.display = ""; toast("Claim failed — try again"); return; }
-  if (!res.committed){ toast("Prize already claimed"); return; }
-  addChips(share);
-  confetti(innerWidth/2, innerHeight*0.3, 160, true); SND.win(true);
-  toast("🏆 Tournament prize — +" + fmt(share));
+    // server re-derives rank and pot, pays exactly once (transaction on claims/$uid)
+    const r = await callFn("tnClaim", {});
+    confetti(innerWidth/2, innerHeight*0.3, 160, true); SND.win(true);
+    toast("🏆 Tournament prize — +" + fmt(r.share));
+  } catch(e){ btn.style.display = ""; toast(e.message || "Claim failed"); }
 }

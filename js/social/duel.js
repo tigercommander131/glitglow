@@ -2,7 +2,9 @@
 const DUEL_GAMES = { war:"Card War", rr:"Russian Roulette", bj:"Blackjack" };
 let duelId = null, duelMy = null, duelMyStake = 0, duelData = null;
 let duelOpenOn = false, duelLiveRef = null, duelPaidFor = null, duelWarShown = null, duelTick = 0;
-const duelRefunded = new Set(); // open-challenge ids already refunded — lobby listener can re-fire mid-removal
+/* Server-authoritative since Phase 1: stakes are escrowed, the RNG seed is
+   generated, and the pot is paid out by Cloud Functions (functions/index.js).
+   The client only renders state and writes its own moves. */
 function duelLobby(){
   const ok = fbReady && user;
   $("duelauthmsg").style.display = ok ? "none" : "";
@@ -15,16 +17,8 @@ function duelLobby(){
       const v = s.val() || {}, now = Date.now(), rows = [];
       for (const [id, o] of Object.entries(v)){
         if (!o || !o.host) continue;
-        if (o.at < now - 3600000){
-          // expiring my own stale challenge returns the stake — it was deducted at post time
-          if (user && o.host.uid === user.uid && !duelRefunded.has(id)){
-            duelRefunded.add(id);
-            db.ref("duels/open/"+id).remove();
-            addChips(o.stake);
-            toast("Expired challenge — stake returned");
-          }
-          continue;
-        }
+        // stale challenges: hide other people's, keep mine visible so Cancel can reclaim the stake
+        if (o.at < now - 3600000 && !(user && o.host.uid === user.uid)) continue;
         rows.push([id, o]);
       }
       rows.sort((a,b) => b[1].at - a[1].at);
@@ -43,54 +37,41 @@ function duelWatch(id){
   duelLiveRef = db.ref("duels/live/"+id);
   duelLiveRef.on("value", duelOnLive);
 }
-function duelCreate(){
+async function duelCreate(){
   if (!fbReady || !user){ toast("Sign in to duel"); return; }
   if (duelId){ toast("Already in a duel"); return; }
   const stake = Math.floor(Number($("duelstake").value));
   if (!stake || stake < 50){ toast("Minimum stake is 50"); return; }
   if (stake > chips){ toast("Not enough chips"); return; }
-  chips -= stake; saveChips(); chipToss(); SND.chips(2);
   const game = $("duelgamepick").value;
-  const ref = db.ref("duels/open").push();
-  ref.set({ game, stake, host: { uid: user.uid, name: displayName || "Player" }, at: Date.now() });
-  duelId = ref.key; duelMy = "host"; duelMyStake = stake; duelPaidFor = null;
-  duelWatch(ref.key);
-  toast("Challenge posted — waiting for a taker");
+  try {
+    const r = await callFn("duelCreate", { game, stake, name: displayName || "Player" });
+    duelId = r.id; duelMy = "host"; duelMyStake = stake; duelPaidFor = null;
+    chipToss(); SND.chips(2);
+    duelWatch(duelId);
+    toast("Challenge posted — waiting for a taker");
+  } catch(e){ toast(e.message || "Couldn't post challenge"); }
 }
 async function duelJoin(id){
   if (!fbReady || !user || duelId) return;
-  const snap = await db.ref("duels/open/"+id).get();
-  const o = snap.val();
-  if (!o){ toast("Challenge already taken"); return; }
-  if (o.host.uid === user.uid) return;
-  if (chips < o.stake){ toast("Not enough chips"); return; }
-  chips -= o.stake; saveChips(); chipToss(); SND.chips(2);
-  const live = Object.assign({}, o, {
-    guest: { uid: user.uid, name: displayName || "Player" },
-    seed: (Math.random()*2**31)|0, state: "play", started: Date.now()
-  });
-  await db.ref("duels/live/"+id).set(live);
-  await db.ref("duels/open/"+id).remove();
-  duelId = id; duelMy = "guest"; duelMyStake = o.stake; duelPaidFor = null;
-  duelWatch(id);
+  try {
+    await callFn("duelJoin", { id, name: displayName || "Player" });
+    duelId = id; duelMy = "guest"; duelPaidFor = null;
+    chipToss(); SND.chips(2);
+    duelWatch(id);
+  } catch(e){ toast(e.message || "Challenge already taken"); }
 }
 async function duelCancel(id){
-  // refund from the DB record, not duelId/duelMyStake — those are lost on page refresh,
-  // which used to make Cancel remove the challenge while eating the stake
-  let o = null;
-  try { const snap = await db.ref("duels/open/"+id).get(); o = snap.val(); } catch(e){}
-  db.ref("duels/open/"+id).remove();
-  if (o && user && o.host.uid === user.uid && !duelRefunded.has(id)){
-    duelRefunded.add(id);
-    addChips(o.stake);
+  try {
+    await callFn("duelCancel", { id });
     toast("Challenge withdrawn — stake returned");
-  }
+  } catch(e){ toast(e.message || "Couldn't cancel"); }
   if (duelId === id) duelReset();
 }
 function duelReset(){
   if (duelLiveRef){ duelLiveRef.off(); duelLiveRef = null; }
   clearInterval(duelTick); duelTick = 0;
-  duelId = null; duelMy = null; duelData = null; duelWarShown = null;
+  duelId = null; duelMy = null; duelData = null; duelWarShown = null; duelSettling = null;
   $("duellobby").style.display = ""; $("duelgame").style.display = "none";
 }
 function duelOnLive(s){
@@ -113,17 +94,19 @@ function duelFinish(d, winnerUid, how){
   duelPaidFor = duelId;
   clearInterval(duelTick); duelTick = 0;
   const me = user.uid, stake = d.stake;
+  // the pot is paid server-side — here we only narrate and re-sync the wallet
   let line;
   if (winnerUid === "split"){
-    addChips(stake); stRound("duel", stake, stake);
+    stRound("duel", stake, stake);
     line = "Dead heat — stakes returned.";
   } else if (winnerUid === me){
-    addChips(stake*2); winFx(stake*2, stake); stRound("duel", stake, stake*2);
+    winFx(stake*2, stake); stRound("duel", stake, stake*2);
     line = "You take the pot — +" + fmt(stake) + (how ? " · " + how : "");
   } else {
     stRound("duel", stake, 0);
     line = (winnerUid === d.host.uid ? d.host.name : d.guest.name) + " takes the pot" + (how ? " · " + how : "");
   }
+  refreshChips(); setTimeout(refreshChips, 2500); // again after settlement fully lands
   const div = document.createElement("div");
   div.className = "msg " + (winnerUid === "split" ? "push" : winnerUid === me ? "win" : "lose");
   div.textContent = line;
@@ -131,16 +114,25 @@ function duelFinish(d, winnerUid, how){
   if (duelMy === "host") setTimeout(() => db.ref("duels/live/"+duelId).remove().catch(()=>{}), 25000);
   setTimeout(duelReset, 6000);
 }
-function duelSetDone(winnerUid, how){
-  if (!duelLiveRef || !duelData || duelData.state === "done") return;
-  duelLiveRef.update({ state: "done", winner: winnerUid, how: how || "" });
+/* ask the server to settle — it replays the duel from seed+moves and pays the
+   pot; args from old call sites are ignored (the server computes the winner) */
+let duelSettling = null;
+function duelSetDone(){
+  if (!duelId || !duelData || duelData.state === "done" || duelSettling === duelId) return;
+  duelSettling = duelId;
+  callFn("duelSettle", { id: duelId }).catch(() => { duelSettling = null; }); // opponent may settle first — fine
+}
+function duelClaimTimeout(){
+  if (!duelId) return;
+  callFn("duelTimeout", { id: duelId })
+    .catch(e => toast(e.message || "Can't claim yet"));
 }
 /* timeout claim: opponent silent for 75s on their turn → take the pot */
 function duelClaimBtn(lastT, myTurn){
   if (myTurn || !lastT) return "";
   const left = 75 - Math.floor((Date.now() - lastT)/1000);
   return left <= 0
-    ? `<div style="display:flex;justify-content:center;margin-top:10px"><button class="actbtn danger" onclick="duelSetDone(user.uid,'opponent timed out')">Claim Win · Opponent Gone</button></div>`
+    ? `<div style="display:flex;justify-content:center;margin-top:10px"><button class="actbtn danger" onclick="duelClaimTimeout()">Claim Win · Opponent Gone</button></div>`
     : `<p style="text-align:center;color:#6e6250;font-size:.78rem;margin-top:8px">opponent has ${left}s before forfeit</p>`;
 }
 function duelEnsureTick(){

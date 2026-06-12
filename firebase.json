@@ -1,0 +1,19 @@
+{
+  "database": {
+    "rules": "database.rules.json"
+  },
+  "functions": {
+    "source": "functions"
+  },
+  "hosting": {
+    "public": ".",
+    "ignore": ["firebase.json", "database.rules.json", "**/.*", "**/node_modules/**", "functions/**", "scripts/**", "deploy.sh", "package*.json"]
+  },
+  "emulators": {
+    "auth": { "port": 9099 },
+    "functions": { "port": 5001 },
+    "database": { "port": 9000 },
+    "ui": { "enabled": false },
+    "singleProjectMode": true
+  }
+}

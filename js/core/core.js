@@ -14,13 +14,41 @@ const firebaseConfig = {
 /* ═══════════════════════════════════════ */
 
 const $ = id => document.getElementById(id);
-let fbReady = false, db = null, auth = null, user = null;
+let fbReady = false, db = null, auth = null, user = null, fns = null;
 try {
   if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
     firebase.initializeApp(firebaseConfig);
     auth = firebase.auth(); db = firebase.database(); fbReady = true;
+    fns = firebase.app().functions("asia-southeast1"); // callables live next to the RTDB instance
+    if (new URLSearchParams(location.search).has("emu")){
+      auth.useEmulator("http://localhost:9099", { disableWarnings: true });
+      db.useEmulator("localhost", 9000);
+      fns.useEmulator("localhost", 5001);
+      console.warn("[emu] using local Firebase emulators");
+    }
   }
 } catch(e){ console.warn("Firebase init failed — guest mode.", e); }
+
+/* ════════ SERVER CALLS ════════
+   Competitive money (duels, tournament) moves only on the server. Callables
+   that touch the balance return { chips: <new server balance> }; adopting it
+   here keeps the local wallet from clobbering a server-side deduction. */
+async function callFn(name, data){
+  if (!fns) throw new Error("Server features need Firebase");
+  const res = await fns.httpsCallable(name)(data || {});
+  if (res.data && typeof res.data.chips === "number") applyServerChips(res.data.chips);
+  return res.data;
+}
+function applyServerChips(v){
+  chips = Math.max(0, Math.floor(v));
+  localStorage.setItem("gg_chips", String(chips));
+  renderChips(); paintBailout();
+}
+async function refreshChips(){
+  if (!fbReady || !user) return;
+  const v = (await db.ref("users/"+user.uid+"/chips").get()).val();
+  if (typeof v === "number") applyServerChips(v);
+}
 
 /* ════════ STATE / CHIPS ════════ */
 let chips = parseInt(localStorage.getItem("gg_chips") || "1000", 10);
@@ -231,7 +259,8 @@ async function authSubmit(){
       const cred = await auth.createUserWithEmailAndPassword(em, pw);
       await cred.user.updateProfile({ displayName: name });
       displayName = name;
-      await db.ref("users/"+cred.user.uid).set({ name, chips: 1000, bonusAt: 0, created: Date.now() });
+      // update(), not set(): rules grant child-level writes only, and the server-owned pub/ subtree must survive
+      await db.ref("users/"+cred.user.uid).update({ name, chips: 1000, bonusAt: 0, created: Date.now() });
       chips = 1000;
     } else {
       await auth.signInWithEmailAndPassword(em, pw);
@@ -247,7 +276,7 @@ if (fbReady) auth.onAuthStateChanged(async u => {
     const d = snap.val() || {};
     displayName = d.name || u.displayName || "Player";
     if (typeof d.chips === "number") chips = d.chips;
-    else await db.ref("users/"+u.uid).set({ name: displayName, chips: chips, bonusAt: bonusAt });
+    else await db.ref("users/"+u.uid).update({ name: displayName, chips: chips, bonusAt: bonusAt });
     if (typeof d.bonusAt === "number") bonusAt = Math.max(bonusAt, d.bonusAt);
     // guards: these live in a later <script> block — a very fast auth restore could land first
     if (typeof stMerge === "function") stMerge(d.stats);
@@ -301,7 +330,7 @@ async function loadLeaderboard(){
     // sort client-side so render is correct even if .indexOn is missing and the SDK falls back unordered
     rows.sort((a,b)=>(b.chips||0)-(a.chips||0));
     body.innerHTML = rows.map((r,i) =>
-      `<tr class="${user && r.uid===user.uid ? "me":""}"><td class="rk">#${i+1}</td><td>${esc(r.name||"Player")}</td><td>${fmt(r.chips||0)}</td></tr>`).join("");
+      `<tr class="${user && r.uid===user.uid ? "me":""}"><td class="rk">#${i+1}</td><td>${esc(r.name||"Player")}</td><td>${fmt(r.chips||0)}</td><td>${(r.pub && r.pub.duelWins) || 0}</td></tr>`).join("");
     tease.innerHTML = rows.slice(0,6).map((r,i) => `<div class="tease">#${i+1} <b>${esc(r.name||"Player")}</b> · ${fmt(r.chips||0)}</div>`).join("") || '<div class="tease">No players yet — be the first.</div>';
     if (!rows.length) console.warn("[leaderboard] zero rows — users/ path empty or data shape mismatch");
   } catch(e){
