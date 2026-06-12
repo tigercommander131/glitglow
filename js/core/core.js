@@ -330,7 +330,7 @@ async function loadLeaderboard(){
     // sort client-side so render is correct even if .indexOn is missing and the SDK falls back unordered
     rows.sort((a,b)=>(b.chips||0)-(a.chips||0));
     body.innerHTML = rows.map((r,i) =>
-      `<tr class="${user && r.uid===user.uid ? "me":""}"><td class="rk">#${i+1}</td><td>${esc(r.name||"Player")}</td><td>${fmt(r.chips||0)}</td><td>${(r.pub && r.pub.duelWins) || 0}</td></tr>`).join("");
+      `<tr class="${user && r.uid===user.uid ? "me":""}" onclick="showProfile('${r.uid}')" style="cursor:pointer" title="view profile"><td class="rk">#${i+1}</td><td>${esc(r.name||"Player")}</td><td>${fmt(r.chips||0)}</td><td>${(r.pub && r.pub.duelWins) || 0}</td></tr>`).join("");
     tease.innerHTML = rows.slice(0,6).map((r,i) => `<div class="tease">#${i+1} <b>${esc(r.name||"Player")}</b> · ${fmt(r.chips||0)}</div>`).join("") || '<div class="tease">No players yet — be the first.</div>';
     if (!rows.length) console.warn("[leaderboard] zero rows — users/ path empty or data shape mismatch");
   } catch(e){
@@ -342,6 +342,33 @@ async function loadLeaderboard(){
   }
 }
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ════════ PLAYER PROFILE CARD — public users/$uid + server-verified pub stats ════════ */
+async function showProfile(uid){
+  if (!fbReady || !uid) return;
+  let d = null;
+  try { d = (await db.ref("users/"+uid).get()).val(); } catch(e){}
+  if (!d) return;
+  const pub = d.pub || {};
+  const old = $("profmodal"); if (old) old.remove();
+  const m = document.createElement("div");
+  m.id = "profmodal";
+  m.style.cssText = "position:fixed;inset:0;z-index:480;display:flex;align-items:center;justify-content:center;background:rgba(4,0,6,.78);backdrop-filter:blur(6px);padding:18px";
+  const stat = (label, val, col) =>
+    `<div><div style="color:#a89878;font-size:.7rem;letter-spacing:.1em">${label}</div><b style="color:${col};font-size:1.15rem">${val}</b></div>`;
+  m.innerHTML = `<div class="panel tc" style="max-width:340px;width:100%;position:relative;text-align:center">
+    <button style="position:absolute;top:8px;right:14px;font-size:1.4rem;color:#a89878" onclick="document.getElementById('profmodal').remove()">×</button>
+    <h3 class="serif" style="color:#e8cf8a;font-size:1.45rem">${esc(d.name || "Player")}</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px" class="mono">
+      ${stat("CHIPS", fmt(d.chips || 0), "#e8cf8a")}
+      ${stat("DUEL WINS ✓", pub.duelWins || 0, "#7be0a3")}
+      ${stat("DUEL EARNINGS ✓", fmt(pub.duelEarnings || 0), "#7be0a3")}
+      ${stat("CROWNS ✓", (pub.tourneyCrowns || 0) + " 🏆", "#ffd23e")}
+    </div>
+    <p style="color:#6e6250;font-size:.72rem;margin-top:14px;font-style:italic">✓ server-verified · chips are self-reported</p></div>`;
+  m.onclick = e => { if (e.target === m) m.remove(); };
+  document.body.appendChild(m);
+}
 
 /* ════════ GAME REGISTRY ════════
    Each game/view file self-registers instead of core enumerating everyone:

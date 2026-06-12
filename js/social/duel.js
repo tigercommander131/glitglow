@@ -1,5 +1,6 @@
 /* ════════════════ DUEL ARENA — 1v1 over Firebase ════════════════ */
-const DUEL_GAMES = { war:"Card War", rr:"Russian Roulette", bj:"Blackjack" };
+const DUEL_GAMES = { war:"Card War", rr:"Russian Roulette", bj:"Blackjack",
+  mines:"Mines Race", hilo:"Hi-Lo Ladder", crash:"Crash Duel" };
 let duelId = null, duelMy = null, duelMyStake = 0, duelData = null;
 let duelOpenOn = false, duelLiveRef = null, duelPaidFor = null, duelWarShown = null, duelTick = 0;
 /* Server-authoritative since Phase 1: stakes are escrowed, the RNG seed is
@@ -11,6 +12,7 @@ function duelLobby(){
   $("duelcreate").style.display = ok ? "" : "none";
   if (!ok){ $("duellist").innerHTML = ""; return; }
   $("duellobby").style.display = ""; $("duelgame").style.display = "none";
+  duelFeedLoad();
   if (!duelOpenOn){
     duelOpenOn = true;
     db.ref("duels/open").on("value", s => {
@@ -24,7 +26,7 @@ function duelLobby(){
       rows.sort((a,b) => b[1].at - a[1].at);
       $("duellist").innerHTML = rows.length ? rows.map(([id, o]) => {
         const mine = user && o.host.uid === user.uid;
-        return `<div class="duelrow"><div class="dl"><span class="dueltag ${o.game}">${DUEL_GAMES[o.game]}</span><span class="dh">${esc(o.host.name)}</span></div>
+        return `<div class="duelrow"${id === duelLinkTarget ? ' style="outline:1px solid #c9a84c;box-shadow:0 0 14px rgba(201,168,76,.3)"' : ""}><div class="dl"><span class="dueltag ${o.game}">${DUEL_GAMES[o.game]}</span><span class="dh">${esc(o.host.name)}</span></div>
           <span class="ds">⛁ ${fmt(o.stake)}</span>
           ${mine ? `<button class="actbtn ghost" onclick="duelCancel('${id}')">Cancel</button>`
                  : `<button class="actbtn primary" onclick="duelJoin('${id}')">Join</button>`}</div>`;
@@ -49,7 +51,11 @@ async function duelCreate(){
     duelId = r.id; duelMy = "host"; duelMyStake = stake; duelPaidFor = null;
     chipToss(); SND.chips(2);
     duelWatch(duelId);
-    toast("Challenge posted — waiting for a taker");
+    const link = location.origin + location.pathname + "?duel=" + duelId;
+    if (navigator.clipboard) navigator.clipboard.writeText(link)
+      .then(() => toast("Challenge posted — link copied, send it to your mark"))
+      .catch(() => toast("Challenge posted — waiting for a taker"));
+    else toast("Challenge posted — waiting for a taker");
   } catch(e){ toast(e.message || "Couldn't post challenge"); }
 }
 async function duelJoin(id){
@@ -72,6 +78,8 @@ function duelReset(){
   if (duelLiveRef){ duelLiveRef.off(); duelLiveRef = null; }
   clearInterval(duelTick); duelTick = 0;
   duelId = null; duelMy = null; duelData = null; duelWarShown = null; duelSettling = null;
+  dmn = null; dhl = null;
+  duelFeedLoad(); // fresh results after a settlement
   $("duellobby").style.display = ""; $("duelgame").style.display = "none";
 }
 function duelOnLive(s){
@@ -85,6 +93,9 @@ function duelOnLive(s){
   if (d.game === "war") duelWar(d);
   if (d.game === "rr") duelRR(d);
   if (d.game === "bj") duelBJ(d);
+  if (d.game === "mines") duelMines(d);
+  if (d.game === "hilo") duelHilo(d);
+  if (d.game === "crash") duelCrash(d);
 }
 function duelNames(d){
   return `<div class="bigstat"><span>${esc(d.host.name)} <b>⛁${fmt(d.stake)}</b></span><span style="color:#a89878">vs</span><span>${esc(d.guest.name)} <b>⛁${fmt(d.stake)}</b></span></div>`;
@@ -262,5 +273,138 @@ function duelBJLock(bust){
   duelLiveRef.child("moves/"+duelMy).set({ total: t, bust: t > 21, n: dbjHand.cards.length, t: Date.now() });
 }
 
+/* ════════ COMMIT-PATTERN DUELS (Phase 2) — mines race / hi-lo ladder / crash ════════
+   Each player plays their side locally against the shared seed, then writes
+   moves/{host|guest} exactly once; the server replays both and pays the pot. */
+let dmn = null, dhl = null;
+function duelCommitLock(payload){
+  if (!duelLiveRef) return;
+  duelLiveRef.child("moves/"+duelMy).set({ ...payload, t: Date.now() });
+}
+function duelMinesField(seed){
+  const rng = mulberry32(seed), mines = new Set();
+  while (mines.size < 5) mines.add((rng()*25)|0);
+  return mines;
+}
+function duelMines(d){
+  const m = d.moves || {}, opp = duelMy === "host" ? "guest" : "host";
+  const myMove = m[duelMy], oppMove = m[opp];
+  if (!dmn || dmn.id !== duelId) dmn = { id: duelId, picks: [], boom: false, boomAt: -1, done: !!myMove };
+  const mines = duelMinesField(d.seed);
+  const gems = dmn.boom ? 0 : dmn.picks.filter(i => !mines.has(i)).length;
+  $("duelgame").innerHTML = duelNames(d) + `
+    <p style="text-align:center;color:#a89878;font-size:.85rem;font-style:italic">same minefield, five mines · bank your gems before you blow up — a boom scores zero · most gems takes the pot</p>
+    <div class="minegrid" id="dmgrid" style="margin-top:10px;max-width:320px"></div>
+    <div class="bigstat" style="margin-top:10px"><span>you: <b>${dmn.boom ? "💥 bust" : gems + " ◆"}${myMove ? " · locked" : ""}</b></span>
+      <span>${esc(d[opp].name)}: <b>${oppMove ? "locked in" : "picking…"}</b></span></div>
+    ${!myMove && !dmn.done ? `<div style="display:flex;justify-content:center;margin-top:10px"><button class="actbtn cash" onclick="duelMinesLock()">Bank ${gems} ◆</button></div>` : ""}
+    ${myMove && !oppMove ? duelClaimBtn(myMove.t, false) : ""}`;
+  const g = $("dmgrid");
+  for (let i = 0; i < 25; i++){
+    const t = document.createElement("div");
+    const picked = dmn.picks.includes(i);
+    t.className = "mtile" + (picked ? " open" : "");
+    t.innerHTML = `<div class="inner"><div class="ff"></div><div class="bb ${mines.has(i) ? "boom" : "gem"}">${mines.has(i) ? "✸" : "◆"}</div></div>`;
+    if (!myMove && !dmn.done && !dmn.boom && !picked) t.onclick = () => duelMinesPick(i);
+    g.appendChild(t);
+  }
+  if (myMove && oppMove) duelSetDone();
+  duelEnsureTick();
+}
+function duelMinesPick(i){
+  if (!dmn || dmn.done || dmn.boom || dmn.picks.includes(i) || !duelData) return;
+  const mines = duelMinesField(duelData.seed);
+  dmn.picks.push(i);
+  if (mines.has(i)){
+    dmn.boom = true; dmn.boomAt = i;
+    SND.boom(); screenShake($("duelgame"));
+    duelMinesLock(); // boom locks your run at zero
+  } else SND.gem();
+  duelOnLive({ val: () => duelData });
+}
+function duelMinesLock(){
+  if (!dmn || dmn.done) return;
+  dmn.done = true;
+  duelCommitLock({ picks: dmn.picks });
+}
+function duelHilo(d){
+  const m = d.moves || {}, opp = duelMy === "host" ? "guest" : "host";
+  const myMove = m[duelMy], oppMove = m[opp];
+  if (!dhl || dhl.id !== duelId) dhl = { id: duelId, calls: "", done: !!myMove };
+  // replay my calls against the shared stream → current card, streak, alive
+  const rng = mulberry32(d.seed);
+  let cur = seededCard(rng), streak = 0, alive = true;
+  for (const c of dhl.calls){
+    const next = seededCard(rng);
+    const good = c === "h" ? warRank(next) >= warRank(cur) : warRank(next) <= warRank(cur);
+    cur = next;
+    if (!good){ alive = false; break; }
+    streak++;
+  }
+  $("duelgame").innerHTML = duelNames(d) + `
+    <p style="text-align:center;color:#a89878;font-size:.85rem;font-style:italic">same card stream for both · higher or lower, ties are kind · longest streak takes the pot</p>
+    <div class="hand" style="justify-content:center;margin-top:8px" id="dhcard"></div>
+    <div class="bigstat" style="margin-top:8px"><span>your streak: <b>${streak}${!alive ? " · ✗" : ""}${myMove ? " · locked" : ""}</b></span>
+      <span>${esc(d[opp].name)}: <b>${oppMove ? "locked in" : "calling…"}</b></span></div>
+    ${!myMove && alive && !dhl.done ? `<div style="display:flex;justify-content:center;gap:10px;margin-top:10px;flex-wrap:wrap">
+      <button class="actbtn primary" onclick="duelHiloCall('h')">Higher ▲</button>
+      <button class="actbtn primary" onclick="duelHiloCall('l')">Lower ▼</button>
+      <button class="actbtn cash" onclick="duelHiloLock()">Bank ${streak}</button></div>` : ""}
+    ${myMove && !oppMove ? duelClaimBtn(myMove.t, false) : ""}`;
+  $("dhcard").appendChild(cardEl(cur));
+  if (!alive && !myMove && !dhl.done) duelHiloLock(); // a wrong call ends the run
+  if (myMove && oppMove) duelSetDone();
+  duelEnsureTick();
+}
+function duelHiloCall(c){
+  if (!dhl || dhl.done || dhl.calls.length >= 20) return;
+  dhl.calls += c; SND.card();
+  duelOnLive({ val: () => duelData });
+}
+function duelHiloLock(){
+  if (!dhl || dhl.done) return;
+  dhl.done = true;
+  duelCommitLock({ calls: dhl.calls });
+}
+function duelCrash(d){
+  const m = d.moves || {}, opp = duelMy === "host" ? "guest" : "host";
+  const myMove = m[duelMy], oppMove = m[opp];
+  const prev = $("dcrtarget") ? $("dcrtarget").value : "2.00"; // survive the 5s re-render
+  $("duelgame").innerHTML = duelNames(d) + `
+    <p style="text-align:center;color:#a89878;font-size:.85rem;font-style:italic">one rocket, same crash point · commit your cash-out before launch · highest exit that survives takes the pot</p>
+    <div class="bigstat" style="margin-top:8px"><span>you: <b>${myMove ? (+myMove.target).toFixed(2) + "× locked" : "pick your exit"}</b></span>
+      <span>${esc(d[opp].name)}: <b>${oppMove ? "locked in" : "deciding…"}</b></span></div>
+    ${!myMove ? `<div class="betrow" style="justify-content:center;margin-top:10px">
+      <label>Cash out at</label><input class="betinput" id="dcrtarget" type="number" min="1.01" step="0.01" value="${esc(prev)}">
+      <button class="actbtn primary" onclick="duelCrashLock()">Lock It In</button></div>` : ""}
+    ${myMove && !oppMove ? duelClaimBtn(myMove.t, false) : ""}`;
+  if (myMove && oppMove) duelSetDone();
+  duelEnsureTick();
+}
+function duelCrashLock(){
+  const t = Math.round(Math.min(Math.max(Number($("dcrtarget").value) || 0, 1.01), 1000) * 100) / 100;
+  duelCommitLock({ target: t });
+}
+
+/* ════════ WINNERS FEED — written only by the server on settlements ════════ */
+async function duelFeedLoad(){
+  const el = $("duelfeed");
+  if (!fbReady || !el) return;
+  try {
+    const snap = await db.ref("feed").orderByKey().limitToLast(8).get();
+    const items = Object.entries(snap.val() || {}).sort((a,b) => a[0] < b[0] ? 1 : -1).map(e => e[1]);
+    el.innerHTML = items.length ? items.map(e =>
+      e.type === "tourney"
+        ? `<div class="duelrow"><div class="dl">🏆 <b>${esc(e.win)}</b> claimed gauntlet #${e.rank} · +${fmt(e.stake)}</div></div>`
+        : e.split
+          ? `<div class="duelrow"><div class="dl">⚔ ${DUEL_GAMES[e.game] || "duel"} — dead heat, stakes returned</div></div>`
+          : `<div class="duelrow"><div class="dl">⚔ <b>${esc(e.win)}</b> took ⛁${fmt(e.stake)} from ${esc(e.lose)} · ${DUEL_GAMES[e.game] || "duel"}</div></div>`).join("")
+      : '<div style="color:#a89878;font-style:italic;font-family:\'Playfair Display\',serif">No blood spilled yet today.</div>';
+  } catch(e){}
+}
+
+/* ════════ CHALLENGE LINKS — ?duel=<id> deep-links into the lobby ════════ */
+let duelLinkTarget = new URLSearchParams(location.search).get("duel") || null;
+if (duelLinkTarget) setTimeout(() => { showView("duel"); toast("Challenge received — find it in the list"); }, 1400);
 
 registerGame("duel", { stop: duelLeave });

@@ -134,6 +134,60 @@ ok(await userWrite(`duels/live/${bjId}/moves/guest`, { total: hvVal(guestCards) 
 r = await call("duelSettle", { id: bjId }, A.token);
 ok(r.winner === A.uid && /mismatch/.test(r.how), `forged hand forfeits (${r.how})`);
 
+console.log("— mines race duel (commit pattern) —");
+r = await call("duelCreate", { game: "mines", stake: 100, name: "Alice" }, A.token);
+const mnId = r.id;
+await call("duelJoin", { id: mnId, name: "Bob" }, B.token);
+live = await adminRead(`duels/live/${mnId}`);
+const field = (() => { const g = mulberry32(live.seed), s = new Set(); while (s.size < 5) s.add((g()*25)|0); return s; })();
+const safe = [...Array(25).keys()].filter(i => !field.has(i));
+const mineTile = [...field][0];
+ok(await userWrite(`duels/live/${mnId}/moves/host`, { picks: safe.slice(0, 4), t: Date.now() }, A.token), "host banks 4 gems");
+ok(await userWrite(`duels/live/${mnId}/moves/guest`, { picks: [...safe.slice(0, 6), mineTile], t: Date.now() }, B.token), "guest greeds into a mine");
+r = await call("duelSettle", { id: mnId }, A.token);
+ok(r.winner === A.uid && r.how === "4 vs 0 gems", `boom scores zero, banker wins (${r.how})`);
+
+console.log("— hi-lo ladder duel —");
+r = await call("duelCreate", { game: "hilo", stake: 100, name: "Alice" }, A.token);
+const hlId = r.id;
+await call("duelJoin", { id: hlId, name: "Bob" }, B.token);
+live = await adminRead(`duels/live/${hlId}`);
+// derive a 3-streak of correct calls and one wrong call from the shared stream
+const mkCalls = (n, sabotage) => {
+  const g = mulberry32(live.seed);
+  let cur = seededCard(g), out = "";
+  for (let i = 0; i < n; i++){
+    const next = seededCard(g);
+    let c = warRank(next) >= warRank(cur) ? "h" : "l";
+    if (sabotage && i === n - 1) c = c === "h" ? "l" : "h";
+    if (sabotage && i === n - 1 && warRank(next) === warRank(cur)) c = "h"; // tie is correct either way — can't sabotage
+    out += c; cur = next;
+  }
+  return out;
+};
+ok(await userWrite(`duels/live/${hlId}/moves/host`, { calls: mkCalls(3, false), t: Date.now() }, A.token), "host banks streak 3");
+ok(await userWrite(`duels/live/${hlId}/moves/guest`, { calls: mkCalls(2, false), t: Date.now() }, B.token), "guest banks streak 2");
+r = await call("duelSettle", { id: hlId }, A.token);
+ok(r.winner === A.uid && r.how === "streak 3 vs 2", `longer streak wins (${r.how})`);
+
+console.log("— crash duel —");
+r = await call("duelCreate", { game: "crash", stake: 100, name: "Alice" }, A.token);
+const crId = r.id;
+await call("duelJoin", { id: crId, name: "Bob" }, B.token);
+live = await adminRead(`duels/live/${crId}`);
+const crPoint = Math.max(1.0, Math.floor((0.97 / (1 - mulberry32(live.seed)())) * 100) / 100);
+const under = Math.max(1.01, Math.round((crPoint - 0.01) * 100) / 100), over = Math.round((crPoint + 1) * 100) / 100;
+ok(await userWrite(`duels/live/${crId}/moves/host`, { target: under, t: Date.now() }, A.token), "host exits under the crash");
+ok(await userWrite(`duels/live/${crId}/moves/guest`, { target: over, t: Date.now() }, B.token), "guest flies past it");
+r = await call("duelSettle", { id: crId }, A.token);
+ok(crPoint < 1.02 ? r.winner === "split" : r.winner === A.uid, `surviving exit beats the bust (point ${crPoint}, ${r.how})`);
+
+console.log("— winners feed —");
+const feed = Object.values(await adminRead("feed") || {});
+ok(feed.length >= 3, `server wrote ${feed.length} feed events`);
+ok(feed.some(e => e.type === "duel" && e.game === "mines" && e.win === "Alice"), "mines result in feed");
+ok(!(await userWrite("feed/forged", { type: "duel", win: "Hacker", stake: 1e9 }, A.token)), "client can't write the feed");
+
 console.log("— tournament —");
 const beforeTn = await chipsOf(A);
 r = await call("tnEnter", { name: "Alice" }, A.token);

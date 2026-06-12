@@ -731,6 +731,9 @@ body.felt-noir .tc{--felt:#15151a;--felt2:#1f1f26}
 .dueltag.war{border:1px solid rgba(62,232,255,.5);color:#9beaff}
 .dueltag.rr{border:1px solid rgba(255,59,31,.55);color:#ff9b8a}
 .dueltag.bj{border:1px solid rgba(123,224,163,.5);color:#a4ecbf}
+.dueltag.mines{border:1px solid rgba(255,210,62,.55);color:#ffe39b}
+.dueltag.hilo{border:1px solid rgba(180,79,255,.55);color:#d9b9ff}
+.dueltag.crash{border:1px solid rgba(232,207,138,.6);color:#e8cf8a}
 
 /* ════════ TOURNAMENT ════════ */
 #tnboard{width:100%;border-collapse:collapse;margin:10px 0}

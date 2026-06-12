@@ -81,7 +81,9 @@ async function bumpPub(uid, key, delta){
 }
 
 /* ════════ DUELS ════════ */
-const DUEL_GAMES = new Set(["war", "rr", "bj"]);
+const DUEL_GAMES = new Set(["war", "rr", "bj", "mines", "hilo", "crash"]);
+/* commit-pattern games: each player writes moves/{host|guest} once, server replays both */
+const COMMIT_GAMES = new Set(["bj", "mines", "hilo", "crash"]);
 
 exports.duelCreate = callable(async (data, ctx) => {
   const uid = needAuth(ctx);
@@ -185,6 +187,62 @@ function duelOutcome(d){
     if (rh === rg) return { winner: "split", how: `${tHost} vs ${tGuest} · dealer ${dT}` };
     return { winner: rh > rg ? d.host.uid : d.guest.uid, how: `${tHost} vs ${tGuest} · dealer ${dT}` };
   }
+  if (d.game === "mines"){
+    const m = d.moves || {};
+    if (!m.host || !m.guest) return null;
+    // shared minefield from the seed; score = gems before stopping, 0 if you hit a mine
+    const mines = new Set();
+    while (mines.size < 5) mines.add((rng() * 25) | 0);
+    const score = role => {
+      const seen = new Set(); let gems = 0;
+      for (const p of (Array.isArray(m[role].picks) ? m[role].picks : []).slice(0, 20)){
+        const i = Math.floor(Number(p));
+        if (!(i >= 0 && i < 25) || seen.has(i)) continue;
+        seen.add(i);
+        if (mines.has(i)) return 0; // boom
+        gems++;
+      }
+      return gems;
+    };
+    const sh = score("host"), sg = score("guest");
+    const how = `${sh} vs ${sg} gems`;
+    if (sh === sg) return { winner: "split", how };
+    return { winner: sh > sg ? d.host.uid : d.guest.uid, how };
+  }
+  if (d.game === "hilo"){
+    const m = d.moves || {};
+    if (!m.host || !m.guest) return null;
+    // both replay the SAME card stream; streak = consecutive correct calls (ties count)
+    const streak = role => {
+      const r = mulberry32(d.seed);
+      let cur = seededCard(r), n = 0;
+      for (const call of String(m[role].calls || "").slice(0, 20)){
+        const next = seededCard(r);
+        const okCall = call === "h" ? warRank(next) >= warRank(cur) : warRank(next) <= warRank(cur);
+        if (!okCall) return n;
+        n++; cur = next;
+      }
+      return n;
+    };
+    const sh = streak("host"), sg = streak("guest");
+    const how = `streak ${sh} vs ${sg}`;
+    if (sh === sg) return { winner: "split", how };
+    return { winner: sh > sg ? d.host.uid : d.guest.uid, how };
+  }
+  if (d.game === "crash"){
+    const m = d.moves || {};
+    if (!m.host || !m.guest) return null;
+    // same curve for both: commit a target multiplier, bust if it's past the crash point
+    const point = Math.max(1.0, Math.floor((0.97 / (1 - rng())) * 100) / 100);
+    const score = role => {
+      const t = Math.round(Math.min(Math.max(Number(m[role].target) || 0, 1.01), 1000) * 100) / 100;
+      return t <= point ? t : 0;
+    };
+    const sh = score("host"), sg = score("guest");
+    const how = `crashed at ${point.toFixed(2)}× · ${sh ? sh.toFixed(2) + "×" : "bust"} vs ${sg ? sg.toFixed(2) + "×" : "bust"}`;
+    if (sh === sg) return { winner: "split", how };
+    return { winner: sh > sg ? d.host.uid : d.guest.uid, how };
+  }
   return null;
 }
 
@@ -200,7 +258,21 @@ async function settleDuel(id, duel, outcome){
     await Promise.all([bumpPub(outcome.winner, "duelWins", 1), bumpPub(outcome.winner, "duelEarnings", stake)]);
   }
   await db.ref(`duels/live/${id}`).update({ state: "done", winner: outcome.winner, how: outcome.how || "" });
+  const winName = outcome.winner === "split" ? null
+    : (outcome.winner === duel.host.uid ? duel.host.name : duel.guest.name);
+  const loseName = outcome.winner === "split" ? null
+    : (outcome.winner === duel.host.uid ? duel.guest.name : duel.host.name);
+  await pushFeed({ type: "duel", game: duel.game, win: winName, lose: loseName, stake, split: outcome.winner === "split" });
   return { winner: outcome.winner, how: outcome.how || "" };
+}
+
+/* ── winners feed: server-written, world-readable, last ~40 events ── */
+async function pushFeed(ev){
+  const ref = db.ref("feed").push();
+  await ref.set({ ...ev, at: Date.now() });
+  const all = (await db.ref("feed").orderByKey().get()).val() || {};
+  const keys = Object.keys(all).sort();
+  if (keys.length > 40) await db.ref("feed").update(Object.fromEntries(keys.slice(0, keys.length - 40).map(k => [k, null])));
 }
 
 exports.duelSettle = callable(async (data, ctx) => {
@@ -229,10 +301,10 @@ exports.duelTimeout = callable(async (data, ctx) => {
     const moves = Object.entries(d.moves || {}).sort((a, b) => a[0] < b[0] ? -1 : 1).map(e => e[1]);
     waitingOn = moves.length % 2 === 0 ? d.host.uid : d.guest.uid;
     lastT = moves.length ? moves[moves.length - 1].t : d.started;
-  } else if (d.game === "bj"){
+  } else if (COMMIT_GAMES.has(d.game)){
     const m = d.moves || {};
     const mine = uid === d.host.uid ? "host" : "guest", theirs = mine === "host" ? "guest" : "host";
-    if (!m[mine]) fail("failed-precondition", "Lock in your own hand first");
+    if (!m[mine]) fail("failed-precondition", "Lock in your own play first");
     waitingOn = d[theirs].uid;
     lastT = m[mine].t || d.started;
   } else fail("failed-precondition", "This duel can't time out");
@@ -329,5 +401,6 @@ exports.tnClaim = callable(async (data, ctx) => {
   if (!res.committed) fail("already-exists", "Prize already claimed");
   const chips = await moveChips(uid, +share);
   if (rank === 0) await bumpPub(uid, "tourneyCrowns", 1);
+  await pushFeed({ type: "tourney", win: rows[rank].name || "Player", rank: rank + 1, stake: share });
   return { share, rank: rank + 1, chips };
 });

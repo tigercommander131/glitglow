@@ -201,14 +201,19 @@
             <option value="war">Card War</option>
             <option value="rr">Russian Roulette</option>
             <option value="bj">Blackjack</option>
+            <option value="mines">Mines Race</option>
+            <option value="hilo">Hi-Lo Ladder</option>
+            <option value="crash">Crash Duel</option>
           </select>
           <label>Stake</label><input class="betinput" id="duelstake" type="number" min="50" value="100">
           <button class="actbtn primary" onclick="duelCreate()">Post Challenge</button>
         </div>
-        <p style="text-align:center;color:#a89878;font-size:.82rem;margin-top:8px;font-style:italic;font-family:'Playfair Display',serif">winner takes both stakes · war &amp; roulette are pure nerve · blackjack you both play the same dealer</p>
+        <p style="text-align:center;color:#a89878;font-size:.82rem;margin-top:8px;font-style:italic;font-family:'Playfair Display',serif">winner takes both stakes · same seed, same luck — only nerve differs · posting copies a challenge link to send a friend</p>
       </div>
       <div class="sthead" style="margin-top:18px">Open Challenges<small>join one, or post your own and wait</small></div>
       <div id="duellist"></div>
+      <div class="sthead" style="margin-top:18px">Latest Blood<small>server-settled results</small></div>
+      <div id="duelfeed"></div>
     </div>
     <div class="panel" id="duelgame" style="display:none"></div>
   </div>

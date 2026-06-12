@@ -30,6 +30,10 @@
         }
       }
     },
+    "feed": {
+      ".read": true,
+      ".write": false
+    },
     "tourney": {
       "$day": {
         ".read": "auth != null",
