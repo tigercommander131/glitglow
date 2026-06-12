@@ -2,6 +2,7 @@
 const fwcv = $("flapcv"), fwCx = fwcv.getContext("2d");
 const FW_W = 420, FW_H = 560;
 let fwBird, fwPipes, fwScore, fwRun = false, fwRaf = 0, fwT = 0, fwDying = false, fwGridOff = 0;
+let fwBirdGrad = null;
 let fwHigh = parseInt(localStorage.getItem("gg_fw_high")||"0",10);
 function fwStart(){
   fwBird = { y: FW_H/2, v: 0, rot: 0, trail: [] };
@@ -114,9 +115,12 @@ function fwDraw(){
   fwCx.save();
   fwCx.translate(110, fwBird.y); fwCx.rotate(Math.PI/4 + fwBird.rot);
   fwCx.shadowColor = "#3ee8ff"; fwCx.shadowBlur = 18;
-  const g = fwCx.createLinearGradient(-9,-9,9,9);
-  g.addColorStop(0,"#d8fbff"); g.addColorStop(1,"#3ee8ff");
-  fwCx.fillStyle = g;
+  // bird gradient is in fixed local space — build once
+  if (!fwBirdGrad){
+    fwBirdGrad = fwCx.createLinearGradient(-9,-9,9,9);
+    fwBirdGrad.addColorStop(0,"#d8fbff"); fwBirdGrad.addColorStop(1,"#3ee8ff");
+  }
+  fwCx.fillStyle = fwBirdGrad;
   fwCx.fillRect(-9,-9,18,18);
   fwCx.shadowBlur = 0;
   fwCx.restore();

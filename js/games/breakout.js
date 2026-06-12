@@ -2,6 +2,7 @@
 const brCv = $("breakcv"), brCx = brCv.getContext("2d");
 const BRC = ["#ff2d78","#b44fff","#3ee8ff","#7bff8e","#ffd23e"];
 let brBricks, brBall, brPad, brScore, brLives, brLevel, brRaf = 0, brLaunched, brParts, brTrail;
+let brPadGrad = null, brPadGradW = 0;
 let brBrickCv = null, brBrickCx = null, brBrickDirty = true; // bricks pre-rendered, repainted only on change
 function brStop(){ cancelAnimationFrame(brRaf); brRaf = 0; }
 function breakStart(){
@@ -104,11 +105,16 @@ function brLoop(){
   // ball
   brCx.beginPath(); brCx.arc(brBall.x,brBall.y,brBall.r,0,7);
   brCx.fillStyle = "#fff"; brCx.shadowColor = "#3ee8ff"; brCx.shadowBlur = 18; brCx.fill(); brCx.shadowBlur = 0;
-  // paddle gradient
-  const pg = brCx.createLinearGradient(brPad.x,0,brPad.x+brPad.w,0);
-  pg.addColorStop(0,"#b44fff"); pg.addColorStop(1,"#ff2d78");
-  brCx.fillStyle = pg; brCx.shadowColor = "#ff2d78"; brCx.shadowBlur = 12;
-  rounded(brCx, brPad.x, brPad.y, brPad.w, 12, 6); brCx.fill(); brCx.shadowBlur = 0;
+  // paddle: gradient cached in paddle-local space, repositioned via translate
+  if (!brPadGrad || brPadGradW !== brPad.w){
+    brPadGrad = brCx.createLinearGradient(0,0,brPad.w,0);
+    brPadGrad.addColorStop(0,"#b44fff"); brPadGrad.addColorStop(1,"#ff2d78");
+    brPadGradW = brPad.w;
+  }
+  brCx.save(); brCx.translate(brPad.x, 0);
+  brCx.fillStyle = brPadGrad; brCx.shadowColor = "#ff2d78"; brCx.shadowBlur = 12;
+  rounded(brCx, 0, brPad.y, brPad.w, 12, 6); brCx.fill();
+  brCx.restore();
   // particles
   brParts = brParts.filter(p => p.life > 0);
   for (const p of brParts){

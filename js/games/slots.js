@@ -29,21 +29,31 @@ function slInit(){
 }
 function slStop(){ cancelAnimationFrame(slRaf); slRaf = 0; if (slPhase==="spin") slPhase="idle"; }
 function slSymAt(reel, idx){ return slStrips[reel][((idx % SL_STRIP_LEN)+SL_STRIP_LEN)%SL_STRIP_LEN]; }
-function slDraw(){
-  const w = slcv.width, h = slcv.height;
-  slx.clearRect(0,0,w,h);
-  // cabinet bg
+/* gradients are geometry-static — build once, not 3× per frame at 60fps */
+let slGrads = null;
+function slGradients(h){
+  if (slGrads) return slGrads;
   const bg = slx.createLinearGradient(0,0,0,h);
   bg.addColorStop(0,"#170a02"); bg.addColorStop(1,"#0a0502");
-  slx.fillStyle = bg; slx.fillRect(0,0,w,h);
+  const rg = slx.createLinearGradient(0,40,0,290);
+  rg.addColorStop(0,"#05030a"); rg.addColorStop(.5,"#120a04"); rg.addColorStop(1,"#05030a");
+  const sh = slx.createLinearGradient(0,40,0,290);
+  sh.addColorStop(0,"rgba(0,0,0,.85)"); sh.addColorStop(.25,"rgba(0,0,0,0)");
+  sh.addColorStop(.75,"rgba(0,0,0,0)"); sh.addColorStop(1,"rgba(0,0,0,.85)");
+  return slGrads = { bg, rg, sh };
+}
+function slDraw(){
+  const w = slcv.width, h = slcv.height;
+  const G = slGradients(h);
+  slx.clearRect(0,0,w,h);
+  // cabinet bg
+  slx.fillStyle = G.bg; slx.fillRect(0,0,w,h);
   // reels
   for (let r=0;r<3;r++){
     const x = SL_RX[r];
     slx.save();
     slx.beginPath(); slx.roundRect(x, 40, SL_RW, 250, 10); slx.clip();
-    const rg = slx.createLinearGradient(0,40,0,290);
-    rg.addColorStop(0,"#05030a"); rg.addColorStop(.5,"#120a04"); rg.addColorStop(1,"#05030a");
-    slx.fillStyle = rg; slx.fillRect(x,40,SL_RW,250);
+    slx.fillStyle = G.rg; slx.fillRect(x,40,SL_RW,250);
     // symbols: pos is fractional strip index at window centre
     const base = Math.floor(slPos[r]) - 2;
     for (let i=0;i<6;i++){
@@ -65,10 +75,7 @@ function slDraw(){
       slx.shadowBlur = 0;
     }
     // window shading
-    const sh = slx.createLinearGradient(0,40,0,290);
-    sh.addColorStop(0,"rgba(0,0,0,.85)"); sh.addColorStop(.25,"rgba(0,0,0,0)");
-    sh.addColorStop(.75,"rgba(0,0,0,0)"); sh.addColorStop(1,"rgba(0,0,0,.85)");
-    slx.fillStyle = sh; slx.fillRect(x,40,SL_RW,250);
+    slx.fillStyle = G.sh; slx.fillRect(x,40,SL_RW,250);
     slx.restore();
     slx.strokeStyle = "rgba(201,168,76,.45)"; slx.lineWidth = 1.5;
     slx.beginPath(); slx.roundRect(x, 40, SL_RW, 250, 10); slx.stroke();

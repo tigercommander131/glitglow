@@ -4,6 +4,7 @@ const mcCv = $("mccv"), mcX = mcCv.getContext("2d");
 const MC_W = 560, MC_H = 460, MC_GY = MC_H - 34;
 const MC_CITY_X = [78, 148, 218, 342, 412, 482], MC_SILO_X = [30, 280, 530];
 let mcCities, mcSilos, mcInc, mcShots, mcBooms, mcParts, mcWaveN, mcScore, mcRun = false, mcRaf = 0;
+let mcGroundGrad = null;
 let mcQ, mcQT, mcPhase, mcBonusT, mcCross = { x: MC_W/2, y: 200 }, mcReviveBank = 0;
 let mcHigh = +localStorage.getItem("gg_mchigh") || 0;
 function mcStart(){
@@ -150,10 +151,12 @@ function mcDrawF(){
   mcX.fillStyle = "#08000f"; mcX.fillRect(0, 0, MC_W, MC_H);
   mcX.fillStyle = "rgba(217,185,255,.2)";
   for (let i = 0; i < 50; i++) mcX.fillRect((i*113)%MC_W, (i*59)%(MC_GY - 40), 1.5, 1.5);
-  // ground
-  const gg = mcX.createLinearGradient(0, MC_GY, 0, MC_H);
-  gg.addColorStop(0, "#2a0a4d"); gg.addColorStop(1, "#12012a");
-  mcX.fillStyle = gg; mcX.fillRect(0, MC_GY, MC_W, MC_H - MC_GY);
+  // ground (static gradient — cache it)
+  if (!mcGroundGrad){
+    mcGroundGrad = mcX.createLinearGradient(0, MC_GY, 0, MC_H);
+    mcGroundGrad.addColorStop(0, "#2a0a4d"); mcGroundGrad.addColorStop(1, "#12012a");
+  }
+  mcX.fillStyle = mcGroundGrad; mcX.fillRect(0, MC_GY, MC_W, MC_H - MC_GY);
   mcX.strokeStyle = "#b44fff"; mcX.lineWidth = 2; mcX.shadowColor = "#b44fff"; mcX.shadowBlur = 8;
   mcX.beginPath(); mcX.moveTo(0, MC_GY); mcX.lineTo(MC_W, MC_GY); mcX.stroke(); mcX.shadowBlur = 0;
   // cities

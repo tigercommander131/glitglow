@@ -6,6 +6,7 @@ const PL_MULTS = {
   high: [1000, 130, 26, 9, 4, 2, 0.2, 0.2, 0.2, 0.2, 0.2, 2, 4, 9, 26, 130, 1000]
 };
 let plRiskKey = "med", plBalls = [], plRaf = 0, plPegs = [], plBucketLit = new Array(17).fill(0);
+let plBallGrad = null;
 const plcv = $("plinkocv"), plx = plcv.getContext("2d");
 const PL_ROWS = 16, PL_W = 520, PL_H = 560, PL_TOP = 44, PL_GAPY = 26, PL_GAPX = 29, PL_PR = 3.5, PL_BR = 6;
 function plBuildPegs(){
@@ -82,11 +83,15 @@ function plLoop(){
     plRaf = requestAnimationFrame(plLoop);
   } else plRaf = 0;
 }
+/* board bg is static; ball gradient is identical per ball — build both once */
+let plBgGrad = null;
 function plDraw(){
   plx.clearRect(0,0,PL_W,PL_H);
-  const bg = plx.createLinearGradient(0,0,0,PL_H);
-  bg.addColorStop(0,"#150a02"); bg.addColorStop(1,"#0a0502");
-  plx.fillStyle = bg; plx.fillRect(0,0,PL_W,PL_H);
+  if (!plBgGrad){
+    plBgGrad = plx.createLinearGradient(0,0,0,PL_H);
+    plBgGrad.addColorStop(0,"#150a02"); plBgGrad.addColorStop(1,"#0a0502");
+  }
+  plx.fillStyle = plBgGrad; plx.fillRect(0,0,PL_W,PL_H);
   // pegs
   for (const p of plPegs){
     if (p.hit>0){ p.hit--; plx.shadowColor="rgba(255,233,168,.9)"; plx.shadowBlur=12; plx.fillStyle="#ffe9a8"; }
@@ -104,10 +109,15 @@ function plDraw(){
     }
     plx.globalAlpha = 1;
     plx.shadowColor = "rgba(255,233,168,1)"; plx.shadowBlur = 16;
-    const g = plx.createRadialGradient(b.x-2,b.y-2,1,b.x,b.y,PL_BR);
-    g.addColorStop(0,"#fff7dd"); g.addColorStop(.5,"#e8cf8a"); g.addColorStop(1,"#a8842e");
-    plx.fillStyle = g;
-    plx.beginPath(); plx.arc(b.x,b.y,PL_BR,0,7); plx.fill();
+    // gradient in ball-local space (centre offset baked in), positioned via translate
+    if (!plBallGrad){
+      plBallGrad = plx.createRadialGradient(-2,-2,1,0,0,PL_BR);
+      plBallGrad.addColorStop(0,"#fff7dd"); plBallGrad.addColorStop(.5,"#e8cf8a"); plBallGrad.addColorStop(1,"#a8842e");
+    }
+    plx.save(); plx.translate(b.x, b.y);
+    plx.fillStyle = plBallGrad;
+    plx.beginPath(); plx.arc(0,0,PL_BR,0,7); plx.fill();
+    plx.restore();
     plx.shadowBlur = 0;
   }
   // buckets

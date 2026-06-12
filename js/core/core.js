@@ -41,6 +41,7 @@ async function callFn(name, data){
 }
 function applyServerChips(v){
   chips = Math.max(0, Math.floor(v));
+  chipsPersisted = chips; // server is authoritative — reset the multi-tab baseline
   localStorage.setItem("gg_chips", String(chips));
   renderChips(); paintBailout();
 }
@@ -116,7 +117,18 @@ function renderChips(){
   })(t0);
 }
 function paintBailout(){ const b = $("bailoutbtn"); if (b) b.style.display = chips < 10 ? "" : "none"; }
+/* baseline = the balance this tab last persisted. Lets saveChips() detect a
+   write by another tab and compose this tab's delta onto it, instead of two
+   tabs reading 1000, playing, and clobbering each other back to a stale value. */
+let chipsPersisted = chips;
 function saveChips(){
+  const fresh = parseInt(localStorage.getItem("gg_chips"), 10);
+  if (Number.isFinite(fresh) && fresh !== chipsPersisted){
+    // another tab moved the balance since our last save — replay our delta on top
+    const delta = chips - chipsPersisted;
+    chips = Math.max(0, fresh + delta);
+  }
+  chipsPersisted = chips;
   localStorage.setItem("gg_chips", String(chips));
   if (fbReady && user) {
     db.ref("users/"+user.uid).update({ chips: Math.floor(chips), name: displayName || "Player" });
@@ -124,6 +136,15 @@ function saveChips(){
   renderChips();
   paintBailout();
 }
+/* an idle tab adopts another tab's balance so it isn't stale next time it plays */
+addEventListener("storage", e => {
+  if (e.key !== "gg_chips" || e.newValue == null) return;
+  const v = parseInt(e.newValue, 10);
+  if (!Number.isFinite(v) || v === chips) return;
+  chips = chipsPersisted = v;
+  chipPrev = chipShown = chips; // external change, not a transaction — no delta/roll
+  renderChips(); paintBailout();
+});
 function addChips(d){
   chips = Math.max(0, chips + d); saveChips();
   if (chips >= 5000) ach("chips5k");
@@ -197,7 +218,9 @@ function tickBonus(){
   const h = Math.floor(left/3600000), m = Math.floor(left%3600000/60000), s = Math.floor(left%60000/1000);
   b.textContent = String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
 }
-setInterval(tickBonus, 1000);
+/* tickBonus only matters when the bonus button is visible AND counting down.
+   Skip the per-second DOM write when the tab is hidden or there's nothing to tick. */
+setInterval(() => { if (!document.hidden) tickBonus(); }, 1000);
 
 /* ════════ HOURLY DRIP — small idle income, banked up to 8h ════════ */
 const DRIP_PER_HR = 20, DRIP_CAP_HRS = 8;
@@ -289,13 +312,13 @@ if (fbReady) auth.onAuthStateChanged(async u => {
     $("username").textContent = displayName;
     localStorage.setItem("gg_name", displayName);
     chipPrev = chipShown = chips; // account balance load is not a transaction — no delta/roll
-    saveChips(); loadLeaderboard();
+    saveChips(); loadLeaderboard(true); // force: your row just changed
     escrowSweep(); // refund bets orphaned by a mid-round tab close — after server chips land, so the refund isn't clobbered
   } else {
     $("authbtn").textContent = "Sign in";
     $("username").textContent = "";
     displayName = "";
-    renderChips(); loadLeaderboard();
+    renderChips(); loadLeaderboard(true);
     escrowSweep();
   }
   tickBonus();
@@ -313,15 +336,20 @@ if (fbReady) auth.onAuthStateChanged(async u => {
      }
    }
    Reads stay public so guests see the board; writes stay locked to the owning account. */
-async function loadLeaderboard(){
+/* leaderboard is read on every home/leaderboard switch — cache the fetch for 30s
+   so rapid toggling doesn't hammer the DB (pass force=true after a settlement) */
+let lbCacheAt = 0;
+async function loadLeaderboard(force){
   const body = $("lbbody"), tease = $("teasestrip");
   if (!fbReady){
     body.innerHTML = ""; $("lblocked").style.display = "block";
     $("lblocked").textContent = "Connect Firebase to light up the leaderboard.";
     tease.innerHTML = '<div class="tease">Leaderboard offline — guest mode</div>'; return;
   }
+  if (!force && Date.now() - lbCacheAt < 30000 && body.children.length) return; // still fresh
   $("lblocked").style.display = user ? "none" : "block";
   try {
+    lbCacheAt = Date.now();
     const snap = await db.ref("users").orderByChild("chips").limitToLast(10).get();
     // NOTE: Firebase forEach cancels iteration when the callback returns truthy —
     // Array.push returns the new length, so the callback must not return it.
@@ -544,6 +572,7 @@ function bumpActivity(){
 }
 ["pointerdown","keydown","touchstart"].forEach(ev => addEventListener(ev, bumpActivity, { passive: true }));
 setInterval(() => {
+  if (document.hidden) return; // no attract-mode bookkeeping for a backgrounded tab
   if (!RM && Date.now() - lastAct > 30000 && $("view-casino").classList.contains("on"))
     attractTg.classList.add("attract");
 }, 5000);
