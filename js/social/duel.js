@@ -270,3 +270,5 @@ function duelBJLock(bust){
   duelLiveRef.child("moves/"+duelMy).set({ total: t, bust: t > 21, n: dbjHand.cards.length, t: Date.now() });
 }
 
+
+registerGame("duel", { stop: duelLeave });

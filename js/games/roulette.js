@@ -173,3 +173,5 @@ function roulSettle(n, total){
   roulBets = {}; setTimeout(roulRenderChips, 1500);
   roulSpinning = false; $("roulspin").disabled = false;
 }
+
+registerGame("roulette", { init: roulInit });

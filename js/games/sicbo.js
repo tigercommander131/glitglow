@@ -132,3 +132,5 @@ function sbResolve(d){
   sbBets = {}; sbRenderChips();
   sbRolling = false; $("sbroll").disabled = false; sbRaf = 0;
 }
+
+registerGame("sicbo", { init: sbInit, stop: sbStop });

@@ -381,3 +381,5 @@ chCv.addEventListener("touchend", e => {
   const dx = e.changedTouches[0].clientX - chSwX, dy = e.changedTouches[0].clientY - chSwY;
   if (Math.abs(dx) > Math.abs(dy)) chTurn(Math.sign(dx), 0); else chTurn(0, Math.sign(dy));
 });
+
+registerGame("chomp", { init: chStart, stop: chStop });

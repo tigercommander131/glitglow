@@ -92,3 +92,5 @@ function hrDraw(winner){
   }
 }
 
+
+registerGame("horses", { init: hrInit, stop: hrStop });

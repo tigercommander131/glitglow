@@ -93,3 +93,5 @@ function bacDeal(){
   }, doneAt + (natural ? 500 : 0));
 }
 
+
+registerGame("baccarat", { init: bacInit });

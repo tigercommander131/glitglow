@@ -161,3 +161,5 @@ function slResolve(){
   $("slspin").disabled = false;
 }
 
+
+registerGame("slots", { init: slInit, stop: slStop });

@@ -224,3 +224,5 @@ document.querySelectorAll("[data-ast]").forEach(b => {
   b.addEventListener("touchstart", on, { passive: false }); b.addEventListener("touchend", off);
   b.addEventListener("mousedown", on); b.addEventListener("mouseup", off); b.addEventListener("mouseleave", off);
 });
+
+registerGame("asteroids", { init: astStart, stop: astStop });

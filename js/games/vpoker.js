@@ -103,3 +103,5 @@ function vpDraw(){
   }, 220 + swap.length*190 + 420);
 }
 
+
+registerGame("vpoker", { init: vpInit });

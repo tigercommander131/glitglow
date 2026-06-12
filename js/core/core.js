@@ -314,8 +314,15 @@ async function loadLeaderboard(){
 }
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
+/* ════════ GAME REGISTRY ════════
+   Each game/view file self-registers instead of core enumerating everyone:
+     registerGame("crash", { init: crashIdleDraw, stop: crashAbort });
+   init  — run when the view is opened via openGame()
+   stop  — run on every view change (cancel loops, abort/refund live rounds) */
+const GG_GAMES = {};
+function registerGame(name, def){ GG_GAMES[name] = def || {}; }
+
 /* ════════ NAVIGATION ════════ */
-const gameViews = ["blackjack","roulette","crash","mines","russian","spinner","hilo","slots","plinko","coinflip","baccarat","vpoker","sicbo","war","horses","scratch","snake","breakout","tetris","invaders","flapwave","asteroids","chomp","missile"];
 function showView(name){
   const cur = document.querySelector(".view.on");
   if (cur && cur.id !== "view-"+name){
@@ -345,45 +352,11 @@ function openGame(name){
     const w = v.querySelector(".arccvwrap");
     if (w){ w.classList.add("crtboot"); setTimeout(()=>w.classList.remove("crtboot"), 700); }
   }
-  if (name === "roulette") roulInit();
-  if (name === "mines") minesDrawIdle();
-  if (name === "russian") rrDraw();
-  if (name === "spinner") spinDraw(0, -1);
-  if (name === "hilo") hiloLadderInit();
-  if (name === "crash") crashIdleDraw();
-  if (name === "slots") slInit();
-  if (name === "plinko") plInit();
-  if (name === "coinflip") cfInit();
-  if (name === "baccarat") bacInit();
-  if (name === "vpoker") vpInit();
-  if (name === "sicbo") sbInit();
-  if (name === "war") warInit();
-  if (name === "horses") hrInit();
-  if (name === "scratch") scInit();
-  if (name === "asteroids") astStart();
-  if (name === "chomp") chStart();
-  if (name === "missile") mcStart();
-  if (name === "invaders") siStart();
-  if (name === "flapwave") fwStart();
-  if (name === "snake") snakeStart();
-  if (name === "breakout") breakStart();
-  if (name === "tetris") tetStart();
+  const g = GG_GAMES[name];
+  if (g && g.init) g.init();
 }
 function stopArcadeLoops(){
-  if (typeof snStop === "function") snStop();
-  if (typeof brStop === "function") brStop();
-  if (typeof ttStop === "function") ttStop();
-  if (typeof crashAbort === "function") crashAbort();
-  if (typeof plStop === "function") plStop();
-  if (typeof slStop === "function") slStop();
-  if (typeof sbStop === "function") sbStop();
-  if (typeof siStop === "function") siStop();
-  if (typeof fwStop === "function") fwStop();
-  if (typeof astStop === "function") astStop();
-  if (typeof chStop === "function") chStop();
-  if (typeof mcStop === "function") mcStop();
-  if (typeof hrStop === "function") hrStop();
-  if (typeof duelLeave === "function") duelLeave();
+  for (const g of Object.values(GG_GAMES)) if (g.stop) g.stop();
 }
 
 /* ════════ GOLD DUST AMBIENCE ════════ */

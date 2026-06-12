@@ -128,3 +128,5 @@ function plDraw(){
   }
 }
 
+
+registerGame("plinko", { init: plInit, stop: plStop });

@@ -129,3 +129,5 @@ function scSettle(){
   }
 }
 
+
+registerGame("scratch", { init: scInit });

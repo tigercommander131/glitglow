@@ -87,3 +87,5 @@ function warGo(){
     warEnd();
   }, dly + 1150);
 }
+
+registerGame("war", { init: warInit });

@@ -92,3 +92,5 @@ snCv.addEventListener("touchend", e => {
   if (Math.abs(dx) > Math.abs(dy)) snTurn(Math.sign(dx), 0); else snTurn(0, Math.sign(dy));
 });
 
+
+registerGame("snake", { init: snakeStart, stop: snStop });

@@ -81,3 +81,5 @@ function bjEnd(){
   if (pay){ addChips(pay); winFx(pay, bjBet); }
 }
 
+
+registerGame("blackjack", {});

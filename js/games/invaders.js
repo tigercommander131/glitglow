@@ -240,3 +240,5 @@ document.querySelectorAll("[data-si]").forEach(b=>{
   b.addEventListener("mousedown", on); b.addEventListener("mouseup", off); b.addEventListener("mouseleave", off);
 });
 
+
+registerGame("invaders", { init: siStart, stop: siStop });

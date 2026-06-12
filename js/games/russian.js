@@ -90,3 +90,5 @@ function rrCash(maxed){
   $("rrmsg").className = "msg win";
 }
 
+
+registerGame("russian", { init: rrDraw });

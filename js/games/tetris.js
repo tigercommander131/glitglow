@@ -225,3 +225,5 @@ document.querySelectorAll("[data-tt]").forEach(b => b.addEventListener("click", 
   if (a === "left") ttMove(-1); if (a === "right") ttMove(1);
   if (a === "rot") ttRotate(); if (a === "down") ttSoft(false); if (a === "drop") ttHard();
 }));
+
+registerGame("tetris", { init: tetStart, stop: ttStop });

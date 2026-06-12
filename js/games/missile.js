@@ -240,3 +240,5 @@ mcCv.addEventListener("touchstart", e => {
   const t = e.touches[0], p = mcCanvasPt(t);
   mcCross = p; mcFire(p.x, p.y);
 }, { passive: false });
+
+registerGame("missile", { init: mcStart, stop: mcStop });

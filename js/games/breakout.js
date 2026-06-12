@@ -143,3 +143,5 @@ addEventListener("keydown", e => {
   if (e.key === "ArrowRight"){ brPad.x = Math.min(brCv.width - brPad.w, brPad.x + 26); e.preventDefault(); }
   if (e.key === " "){ brLaunched = true; e.preventDefault(); }
 });
+
+registerGame("breakout", { init: breakStart, stop: brStop });

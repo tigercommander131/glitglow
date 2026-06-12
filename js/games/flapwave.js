@@ -133,3 +133,5 @@ addEventListener("keydown", e=>{
   if (!$("view-flapwave").classList.contains("on")) return;
   if (e.key === " "){ e.preventDefault(); fwFlap(); }
 });
+
+registerGame("flapwave", { init: fwStart, stop: fwStop });

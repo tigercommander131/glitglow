@@ -67,3 +67,5 @@ function hiloCash(){
   $("hilomsg").textContent = `Cashed out at ${m.toFixed(1)}× — +${fmt(pay-hlBet)}`;
   $("hilomsg").className = "msg win";
 }
+
+registerGame("hilo", { init: hiloLadderInit });

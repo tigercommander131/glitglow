@@ -62,3 +62,5 @@ function spinGo(){
   })(t0);
 }
 
+
+registerGame("spinner", { init: () => spinDraw(0, -1) });

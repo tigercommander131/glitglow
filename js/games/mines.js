@@ -73,3 +73,5 @@ function minesCash(){
   minesRevealAll();
 }
 
+
+registerGame("mines", { init: minesDrawIdle });

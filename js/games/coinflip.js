@@ -70,3 +70,5 @@ function cfEnd(){
   $("cfcash").disabled = true; $("cfstart").disabled = false;
   cfPaint();
 }
+
+registerGame("coinflip", { init: cfInit });

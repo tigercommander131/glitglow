@@ -82,3 +82,5 @@ function crashBoom(){
 }
 function crashAbort(){ if (crLive){ cancelAnimationFrame(crRaf); crLive = false; escrowSettle("crash"); addChips(crBet); $("crashgo").disabled = false; $("crashcash").disabled = true; } }
 
+
+registerGame("crash", { init: crashIdleDraw, stop: crashAbort });
