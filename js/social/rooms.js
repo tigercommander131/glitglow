@@ -128,33 +128,58 @@ function roomConnect(d){
   roomConnRef.onDisconnect().set(false);
   roomConnRef.set(true);
 }
+/* the real European felt — same markup/classes as the casino game (js/games/roulette.js)
+   so it looks identical, just wired to the room's escrowed budget */
+function roomFeltHTML(){
+  let h = `<div class="fcell grn" data-bet="n0" style="grid-row:1/4">0</div>`;
+  for (let row = 0; row < 3; row++)
+    for (let col = 0; col < 12; col++){
+      const n = col*3 + (3-row);
+      h += `<div class="fcell ${RM_REDS.has(n)?"red":"blk"}" data-bet="n${n}" style="grid-row:${row+1};grid-column:${col+2}">${n}</div>`;
+    }
+  for (let row = 0; row < 3; row++)
+    h += `<div class="fcell outer" data-bet="col${3-row}" style="grid-row:${row+1};grid-column:14">2:1</div>`;
+  ["1st 12","2nd 12","3rd 12"].forEach((d, i) => h += `<div class="fcell outer" data-bet="dz${i+1}" style="grid-row:4;grid-column:${2+i*4}/${6+i*4}">${d}</div>`);
+  [["lo","1–18"],["even","EVEN"],["red","RED"],["blk","BLACK"],["odd","ODD"],["hi","19–36"]].forEach((o, i) =>
+    h += `<div class="fcell outer" data-bet="${o[0]}" style="grid-row:5;grid-column:${2+i*2}/${4+i*2}">${o[1]}</div>`);
+  return h;
+}
 function roomRenderBetting(d){
-  if ($("roomstage").dataset.phase === "betting") { roomPaintCountdown(d); return; }  // already drawn — just tick
+  if ($("roomstage").dataset.phase === "betting"){ roomPaintCountdown(d); roomPaintPlayers(d); return; }  // already drawn — just tick + refresh
   $("roomstage").dataset.phase = "betting";
   roomStake = d.stake;
-  const mine = user && d.players[user.uid];
   roomLocked = !!(d.bets && user && d.bets[user.uid]);
-  const nums = Array.from({ length: 37 }, (_, n) => `<button class="rnum ${roomColor(n)}" onclick="roomBet('n${n}',this)">${n}</button>`).join("");
-  const outs = [["red","RED"],["blk","BLACK"],["odd","ODD"],["even","EVEN"],["lo","1–18"],["hi","19–36"],["dz1","1st 12"],["dz2","2nd 12"],["dz3","3rd 12"]];
   $("roomstage").innerHTML = `
     <div class="roomtop"><h2 class="gametitle">Roulette · ⛁ ${fmt(d.stake)} ante</h2>
       <div class="rtimer" id="rtimer">--</div></div>
     <div class="rplayers" id="rplayers"></div>
-    <div class="rfelt">
-      <div class="rnums">${nums}</div>
-      <div class="routs">${outs.map(o => `<button class="rout" onclick="roomBet('${o[0]}',this)">${o[1]}</button>`).join("")}</div>
-    </div>
+    <canvas class="rwheel" id="rwheel" width="380" height="380"></canvas>
+    <div class="rfeltwrap"><div class="feltgrid" id="rfelt">${roomFeltHTML()}</div></div>
     <div class="rbetbar">
       <div class="rbudget">Budget <b id="rbudget">${fmt(d.stake)}</b> · placed <b id="rplaced">0</b></div>
-      <div class="rchips">${[10,50,100].map(v => `<button class="rchip${v===roomBetChip?" on":""}" onclick="roomPickChip(${v},this)">${v}</button>`).join("")}</div>
+      <div class="rchips">${[10,50,100,500].map(v => `<button class="cbtn rchip${v===roomBetChip?" on":""}" onclick="roomPickChip(${v},this)">${v}</button>`).join("")}</div>
       <button class="actbtn ghost" onclick="roomClearBets()">Clear</button>
       <button class="actbtn primary" id="rlockbtn" onclick="roomLockBets()">Lock in bets</button>
     </div>
-    <div class="roomhint" id="rhint">Spread your ${fmt(d.stake)} across the felt, then lock in before the wheel.</div>`;
+    <div class="roomhint" id="rhint">Place chips on the felt, then lock in before the wheel spins.</div>`;
+  $("rfelt").addEventListener("click", e => {
+    const cell = e.target.closest(".fcell"); if (!cell || roomLocked) return;
+    roomBet(cell.dataset.bet); roomRenderFeltChips();
+  });
+  roomDrawWheelIdle();
   roomPaintPlayers(d);
   if (roomLocked) roomMarkLocked();
-  roomRenderBet();
+  roomRenderBet(); roomRenderFeltChips();
   roomPaintCountdown(d);
+}
+function roomDrawWheelIdle(){ const cv = $("rwheel"); if (cv && typeof roulDrawWheel === "function") roulDrawWheel(0, 0, -1, 0, null, cv, -1); }
+function roomRenderFeltChips(){
+  document.querySelectorAll("#rfelt .betchip").forEach(c => c.remove());
+  for (const [k, v] of Object.entries(roomBets)){
+    const cell = document.querySelector(`#rfelt [data-bet="${k}"]`);
+    if (cell){ const c = document.createElement("div"); c.className = "betchip"; c.textContent = v >= 1000 ? (v/1000)+"k" : v; cell.appendChild(c); }
+  }
+  roomRenderBet();
 }
 function roomPaintPlayers(d){
   const el = $("rplayers"); if (!el) return;
@@ -177,15 +202,15 @@ function roomPaintCountdown(d){
 }
 /* ── bet building (local until locked) ── */
 function roomPickChip(v, btn){ roomBetChip = v; document.querySelectorAll(".rchip").forEach(c => c.classList.remove("on")); btn.classList.add("on"); }
-function roomBet(key, btn){
+function roomBet(key){
   if (roomLocked) return;
   const placed = Object.values(roomBets).reduce((a, b) => a + b, 0);
   if (placed + roomBetChip > roomStake){ toast("That's over your budget"); return; }
   roomBets[key] = (roomBets[key] || 0) + roomBetChip;
-  if (btn){ btn.classList.add("staked"); btn.dataset.amt = roomBets[key]; }
+  if (typeof SND !== "undefined" && SND.tick) SND.tick();
   roomRenderBet();
 }
-function roomClearBets(){ if (roomLocked) return; roomBets = {}; document.querySelectorAll(".rnum,.rout").forEach(b => { b.classList.remove("staked"); delete b.dataset.amt; }); roomRenderBet(); }
+function roomClearBets(){ if (roomLocked) return; roomBets = {}; roomRenderFeltChips(); }
 function roomRenderBet(){
   const placed = Object.values(roomBets).reduce((a, b) => a + b, 0);
   if ($("rplaced")) $("rplaced").textContent = fmt(placed);
@@ -202,19 +227,22 @@ async function roomLockBets(){
 }
 function roomMarkLocked(){
   const b = $("rlockbtn"); if (b){ b.textContent = "Bets locked ✓"; b.disabled = true; }
-  document.querySelectorAll(".rnum,.rout,.rchip").forEach(x => x.disabled = true);
+  document.querySelectorAll(".rchip").forEach(x => x.disabled = true);
+  const clr = document.querySelector('.rbetbar .actbtn.ghost'); if (clr) clr.disabled = true;
+  const f = $("rfelt"); if (f) f.classList.add("locked");
   if ($("rhint")) $("rhint").textContent = "Bets locked — watch the wheel.";
 }
-/* ── result: a quick shared spin reveal, then the payout ── */
+/* ── result: the real wheel spins to the server's pocket (same for everyone), then the payout ── */
 function roomRenderResult(d){
   const r = d.result, me = user && user.uid;
   const iWon = r.winners && r.winners.includes(me);
   const names = (r.winners || []).map(uid => (d.players[uid] || {}).name || "—");
+  const colName = roomColor(r.pocket) === "grn" ? "GREEN" : roomColor(r.pocket) === "red" ? "RED" : "BLACK";
   $("roomstage").dataset.phase = "done";
   $("roomstage").innerHTML = `
     <div class="roomtop"><h2 class="gametitle">Roulette</h2></div>
     <div class="rresult">
-      <div class="rball ${roomColor(r.pocket)}" id="rball">--</div>
+      <canvas class="rwheel" id="rwheel" width="380" height="380"></canvas>
       <div class="rland" id="rland"></div>
       <div class="rpayout" id="rpayout" style="visibility:hidden">
         ${r.dead ? `<div class="rdead">No winning bet — the pot was returned.</div>`
@@ -222,21 +250,32 @@ function roomRenderResult(d){
       </div>
       <button class="actbtn primary" id="ragain" style="visibility:hidden" onclick="roomBackToLobby()">Back to the lobby</button>
     </div>`;
-  // brief cycling spin that lands on the server's pocket (same for everyone)
-  const ball = $("rball"); let spins = 0;
-  const spin = setInterval(() => {
-    const n = (Math.random() * 37) | 0;
-    ball.textContent = n; ball.className = "rball " + roomColor(n);
-    if (++spins > 18){
-      clearInterval(spin);
-      ball.textContent = r.pocket; ball.className = "rball land " + roomColor(r.pocket);
-      $("rland").textContent = `${r.pocket} ${roomColor(r.pocket) === "grn" ? "GREEN" : roomColor(r.pocket) === "red" ? "RED" : "BLACK"}`;
-      $("rpayout").style.visibility = "visible";
-      $("ragain").style.visibility = "visible";
-      if (iWon){ SND && SND.win && SND.win(); if (typeof refreshChips === "function") refreshChips(); }
-      else if (typeof refreshChips === "function") refreshChips();
-    }
-  }, 90);
+  roomSpinWheelTo(r.pocket, () => {
+    const l = $("rland"); if (l) l.textContent = `${r.pocket} ${colName}`;
+    const p = $("rpayout"); if (p) p.style.visibility = "visible";
+    const a = $("ragain"); if (a) a.style.visibility = "visible";
+    if (iWon && typeof SND !== "undefined" && SND.win) SND.win();
+    if (typeof refreshChips === "function") refreshChips();
+  });
+}
+/* port of the casino spin animation, but it lands on a KNOWN pocket (the server's) and
+   never settles locally — reuses roulDrawWheel() on the room's own canvas */
+function roomSpinWheelTo(winNum, done){
+  const cv = $("rwheel"); if (!cv || typeof roulDrawWheel !== "function"){ done(); return; }
+  const winIdx = RWHEEL.indexOf(winNum), seg = Math.PI*2/37, pointerA = -Math.PI/2, TAU = Math.PI*2, spins = 6;
+  const startW = 0, targW = pointerA - (winIdx+0.5)*seg, endW = startW - (((startW-targW)%TAU)+TAU)%TAU - TAU*spins;
+  const R = cv.width/2 - 6, trackR = R - 11, ballStart = Math.random()*7, ballEnd = pointerA + Math.PI*2*(spins+3);
+  const T = 5000, t0 = performance.now(), ease = t => 1 - Math.pow(1-t, 3), trail = []; let lastSeg = -1;
+  (function frame(now){
+    const t = Math.min(1, (now - t0)/T), e = ease(t), angle = startW + (endW-startW)*e, ba = ballStart + (ballEnd-ballStart)*e;
+    const ts = Math.floor((ba - angle)/seg);
+    if (ts !== lastSeg && t < 0.97){ lastSeg = ts; if (typeof SND !== "undefined" && SND.tick) SND.tick(); }
+    let drop = 0;
+    if (t > 0.78){ const dd = (t-0.78)/0.22; drop = (trackR-(R-40))*Math.min(1, dd) + Math.abs(Math.sin(dd*Math.PI*3))*(1-dd)*8; }
+    if (t < 0.9){ trail.push({ a: ba, r: trackR-drop }); if (trail.length > 10) trail.shift(); } else trail.shift();
+    roulDrawWheel(angle, t < 0.97 ? ba : angle + (winIdx+0.5)*seg, trackR, drop, trail, cv, winNum);
+    if (t < 1) requestAnimationFrame(frame); else done();
+  })(t0);
 }
 
 /* ── teardown ── */

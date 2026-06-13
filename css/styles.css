@@ -914,3 +914,9 @@ body.felt-noir .tc{--felt:#15151a;--felt2:#1f1f26}
   .rfelt{padding:8px}.rnums{gap:2px}.rnum{font-size:.6rem}
   .roomrow .rrM{margin-left:0;width:100%}
 }
+
+/* real roulette wheel + felt inside the live room */
+.rwheel{display:block;width:100%;max-width:340px;margin:0 auto 14px;filter:drop-shadow(0 16px 30px rgba(0,0,0,.6))}
+.rfeltwrap{overflow-x:auto;padding-bottom:8px;margin-bottom:14px}
+.rfeltwrap .feltgrid{margin:0 auto}
+#rfelt.locked{opacity:.85;pointer-events:none}

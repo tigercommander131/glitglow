@@ -46,8 +46,11 @@ function roulRenderChips(){
   $("roultotal").textContent = "staked: " + fmt(stakedTotal());
 }
 function roulClear(){ if (!roulSpinning){ roulBets = {}; roulRenderChips(); } }
-function roulDrawWheel(wheelA, ballA, ballR, ballDrop, trail){
-  const cv = $("roulcv"), ctx = cv.getContext("2d"), W = cv.width, cx = W/2, cy = W/2;
+/* cv + winN are optional so the multiplayer table (js/social/rooms.js) can reuse
+   this exact renderer on its own canvas; solo play passes neither and keeps the defaults */
+function roulDrawWheel(wheelA, ballA, ballR, ballDrop, trail, cv, winN){
+  cv = cv || $("roulcv"); if (winN === undefined) winN = roulWin;
+  const ctx = cv.getContext("2d"), W = cv.width, cx = W/2, cy = W/2;
   const R = W/2 - 6;
   ctx.clearRect(0,0,W,W);
   // outer rim
@@ -61,7 +64,7 @@ function roulDrawWheel(wheelA, ballA, ballR, ballDrop, trail){
     ctx.beginPath(); ctx.moveTo(cx + Math.cos(a0)*inR, cy + Math.sin(a0)*inR);
     ctx.arc(cx,cy,segR,a0,a1); ctx.arc(cx,cy,inR,a1,a0,true); ctx.closePath();
     ctx.fillStyle = n === 0 ? "#0a5c2e" : (RREDS.has(n) ? "#8b1a1a" : "#141414");
-    if (n === roulWin){ ctx.fillStyle = n === 0 ? "#1fae62" : (RREDS.has(n) ? "#e03535" : "#4a4a4a"); }
+    if (n === winN){ ctx.fillStyle = n === 0 ? "#1fae62" : (RREDS.has(n) ? "#e03535" : "#4a4a4a"); }
     ctx.fill();
     ctx.strokeStyle = "rgba(232,207,138,.55)"; ctx.lineWidth = 1; ctx.stroke();
     const am = a0 + seg/2, tr = segR - 13;
