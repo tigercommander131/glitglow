@@ -30,6 +30,40 @@
         }
       }
     },
+    "rooms": {
+      "open": {
+        ".read": "auth != null",
+        ".write": false
+      },
+      "live": {
+        "$id": {
+          ".read": "auth != null",
+          ".write": "auth != null && data.child('settled').val() === true && !newData.exists()",
+          "players": {
+            "$uid": {
+              "connected": {
+                ".write": "auth != null && auth.uid === $uid && newData.isBoolean()"
+              }
+            }
+          },
+          "bets": {
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid && !data.exists() && newData.parent().parent().child('phase').val() === 'betting' && newData.parent().parent().child('players').child(auth.uid).exists()"
+            }
+          }
+        }
+      }
+    },
+    "roomseeds": {
+      ".read": false,
+      ".write": false
+    },
+    "presence": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
     "feed": {
       ".read": true,
       ".write": false
