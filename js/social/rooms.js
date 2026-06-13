@@ -4,12 +4,13 @@
    server-seeded spin takes the pot. The client only renders state, writes its own
    presence flag, and locks in its own bet once — the server owns money and the seed. */
 
-const ROOM_GAMES = { roulette: "Roulette" };
+const ROOM_GAMES = { roulette: "Roulette", dice: "Dice", baccarat: "Baccarat" };
 const RM_REDS = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
 
 let roomId = null, roomHost = false, roomOpenOn = false;
 let roomOpenRef = null, roomLiveRef = null, roomConnRef = null;
 let roomStake = 0, roomBets = {}, roomBetChip = 50, roomLocked = false;
+let roomBetMode = "board", roomSide = null;     // board games stake a felt; baccarat picks a side
 let roomTick = 0, roomSettleTried = false, roomLivePhase = null;
 
 const roomColor = n => n === 0 ? "grn" : (RM_REDS.has(n) ? "red" : "blk");
@@ -53,10 +54,11 @@ async function roomCreate(){
   if (roomId){ toast("You're already at a table"); return; }
   const stake = Math.floor(Number($("roomstakein").value));
   const seats = Math.floor(Number($("roomseatsin").value));
+  const game = ($("roomgamein") && $("roomgamein").value) || "roulette";
   if (!stake || stake < 50){ toast("Minimum ante is 50"); return; }
   if (stake > chips){ toast("Not enough chips"); return; }
   try {
-    const r = await callFn("roomCreate", { game: "roulette", seats, stake, name: displayName || "Player" });
+    const r = await callFn("roomCreate", { game, seats, stake, name: displayName || "Player" });
     SND && SND.chips && SND.chips(2);
     roomEnter(r.id, true);
   } catch(e){ toast(e.message || "Couldn't open the table"); }
@@ -70,7 +72,7 @@ async function roomJoin(id){
   } catch(e){ toast(e.message || "Couldn't take a seat"); }
 }
 function roomEnter(id, host){
-  roomId = id; roomHost = host; roomBets = {}; roomLocked = false; roomSettleTried = false; roomLivePhase = null;
+  roomId = id; roomHost = host; roomBets = {}; roomSide = null; roomBetMode = "board"; roomLocked = false; roomSettleTried = false; roomLivePhase = null;
   $("roomlobby").style.display = "none";
   $("roomstage").style.display = "";
   roomOpenRef = db.ref("rooms/open/" + id); roomOpenRef.on("value", roomOnOpen);
@@ -144,10 +146,11 @@ function roomFeltHTML(){
     h += `<div class="fcell outer" data-bet="${o[0]}" style="grid-row:5;grid-column:${2+i*2}/${4+i*2}">${o[1]}</div>`);
   return h;
 }
-function roomRenderBetting(d){
+function roomRenderBetting(d){ ({ dice: diceBetting, baccarat: bacBetting }[d.game] || roulBetting)(d); }
+function roulBetting(d){
   if ($("roomstage").dataset.phase === "betting"){ roomPaintCountdown(d); roomPaintPlayers(d); return; }  // already drawn — just tick + refresh
   $("roomstage").dataset.phase = "betting";
-  roomStake = d.stake;
+  roomBetMode = "board"; roomStake = d.stake;
   roomLocked = !!(d.bets && user && d.bets[user.uid]);
   $("roomstage").innerHTML = `
     <div class="roomtop"><h2 class="gametitle">Roulette · ⛁ ${fmt(d.stake)} ante</h2>
@@ -218,40 +221,53 @@ function roomRenderBet(){
 }
 async function roomLockBets(){
   if (roomLocked) return;
-  const placed = Object.values(roomBets).reduce((a, b) => a + b, 0);
-  if (!placed){ toast("Place at least one bet"); return; }
+  let payload;
+  if (roomBetMode === "side"){
+    if (!roomSide){ toast("Pick a side first"); return; }
+    payload = { side: roomSide };
+  } else {
+    const placed = Object.values(roomBets).reduce((a, b) => a + b, 0);
+    if (!placed){ toast("Place at least one bet"); return; }
+    payload = { board: roomBets, total: placed };
+  }
   try {
-    await db.ref(`rooms/live/${roomId}/bets/${user.uid}`).set({ board: roomBets, total: placed });
-    roomLocked = true; roomMarkLocked(); SND && SND.chips && SND.chips(1);
-  } catch(e){ toast("Couldn't lock bets — round may have closed"); }
+    await db.ref(`rooms/live/${roomId}/bets/${user.uid}`).set(payload);
+    roomLocked = true; roomMarkLocked(); if (typeof SND !== "undefined" && SND.chips) SND.chips(1);
+  } catch(e){ toast("Couldn't lock — round may have closed"); }
 }
 function roomMarkLocked(){
-  const b = $("rlockbtn"); if (b){ b.textContent = "Bets locked ✓"; b.disabled = true; }
-  document.querySelectorAll(".rchip").forEach(x => x.disabled = true);
+  const b = $("rlockbtn"); if (b){ b.textContent = "Locked in ✓"; b.disabled = true; }
+  document.querySelectorAll(".rchip,.bacside").forEach(x => x.disabled = true);
   const clr = document.querySelector('.rbetbar .actbtn.ghost'); if (clr) clr.disabled = true;
   const f = $("rfelt"); if (f) f.classList.add("locked");
-  if ($("rhint")) $("rhint").textContent = "Bets locked — watch the wheel.";
+  if ($("rhint")) $("rhint").textContent = "Locked in — waiting on the table.";
 }
-/* ── result: the real wheel spins to the server's pocket (same for everyone), then the payout ── */
-function roomRenderResult(d){
+/* shared payout line for every game's result screen */
+function roomPayoutHTML(d){
+  const r = d.result, me = user && user.uid, iWon = r.winners && r.winners.includes(me);
+  const names = (r.winners || []).map(uid => (d.players[uid] || {}).name || "—");
+  return r.dead ? `<div class="rdead">No winning bet — the pot was returned.</div>`
+    : `<div class="${iWon ? "rwin" : "rlose"}">${iWon ? `You take ${fmt(r.share)}! 🩸` : `${names.join(" & ")} take${names.length>1?"":"s"} the ${fmt(r.pot)} pot`}</div>`;
+}
+function roomRenderResult(d){ ({ dice: diceResult, baccarat: bacResult }[d.game] || roulResult)(d); }
+/* ── roulette result: the real wheel spins to the server's pocket (same for everyone) ── */
+function roulResult(d){
   const r = d.result, me = user && user.uid;
   const iWon = r.winners && r.winners.includes(me);
   const names = (r.winners || []).map(uid => (d.players[uid] || {}).name || "—");
-  const colName = roomColor(r.pocket) === "grn" ? "GREEN" : roomColor(r.pocket) === "red" ? "RED" : "BLACK";
+  const pocket = r.outcome;
+  const colName = roomColor(pocket) === "grn" ? "GREEN" : roomColor(pocket) === "red" ? "RED" : "BLACK";
   $("roomstage").dataset.phase = "done";
   $("roomstage").innerHTML = `
     <div class="roomtop"><h2 class="gametitle">Roulette</h2></div>
     <div class="rresult">
       <canvas class="rwheel" id="rwheel" width="380" height="380"></canvas>
       <div class="rland" id="rland"></div>
-      <div class="rpayout" id="rpayout" style="visibility:hidden">
-        ${r.dead ? `<div class="rdead">No winning bet — the pot was returned.</div>`
-          : `<div class="${iWon ? "rwin" : "rlose"}">${iWon ? `You take ${fmt(r.share)}! 🩸` : `${names.join(" & ")} take${names.length>1?"":"s"} the ${fmt(r.pot)} pot`}</div>`}
-      </div>
+      <div class="rpayout" id="rpayout" style="visibility:hidden">${roomPayoutHTML(d)}</div>
       <button class="actbtn primary" id="ragain" style="visibility:hidden" onclick="roomBackToLobby()">Back to the lobby</button>
     </div>`;
-  roomSpinWheelTo(r.pocket, () => {
-    const l = $("rland"); if (l) l.textContent = `${r.pocket} ${colName}`;
+  roomSpinWheelTo(pocket, () => {
+    const l = $("rland"); if (l) l.textContent = `${pocket} ${colName}`;
     const p = $("rpayout"); if (p) p.style.visibility = "visible";
     const a = $("ragain"); if (a) a.style.visibility = "visible";
     if (iWon && typeof SND !== "undefined" && SND.win) SND.win();
@@ -278,13 +294,132 @@ function roomSpinWheelTo(winNum, done){
   })(t0);
 }
 
+/* ════════ DICE / SIC BO — real casino board + canvas dice ════════ */
+function roomSicboHTML(){
+  let h = `<button class="fcell outer span2" data-bet="small">SMALL<small>4–10 · 1:1</small></button>`;
+  h += `<button class="fcell grn span2" data-bet="triple">ANY TRIPLE<small>30:1</small></button>`;
+  h += `<button class="fcell outer span2" data-bet="big">BIG<small>11–17 · 1:1</small></button>`;
+  for (let d = 1; d <= 6; d++) h += `<button class="fcell red" data-bet="dbl${d}">${d}+${d}<small>10:1</small></button>`;
+  for (let t = 4; t <= 17; t++) h += `<button class="fcell blk${t>=16?" span3":""}" data-bet="tot${t}">${t}<small>${(typeof SB_TOTPAY !== "undefined" ? SB_TOTPAY[t] : "")}:1</small></button>`;
+  return h;
+}
+function diceBetting(d){
+  if ($("roomstage").dataset.phase === "betting"){ roomPaintCountdown(d); roomPaintPlayers(d); return; }
+  $("roomstage").dataset.phase = "betting";
+  roomBetMode = "board"; roomStake = d.stake;
+  roomLocked = !!(d.bets && user && d.bets[user.uid]);
+  $("roomstage").innerHTML = `
+    <div class="roomtop"><h2 class="gametitle">Dice · ⛁ ${fmt(d.stake)} ante</h2><div class="rtimer" id="rtimer">--</div></div>
+    <div class="rplayers" id="rplayers"></div>
+    <canvas id="rdice" width="380" height="150"></canvas>
+    <div class="rfeltwrap"><div class="sbgrid" id="rfelt">${roomSicboHTML()}</div></div>
+    <div class="rbetbar">
+      <div class="rbudget">Budget <b id="rbudget">${fmt(d.stake)}</b> · placed <b id="rplaced">0</b></div>
+      <div class="rchips">${[10,50,100,500].map(v => `<button class="cbtn rchip${v===roomBetChip?" on":""}" onclick="roomPickChip(${v},this)">${v}</button>`).join("")}</div>
+      <button class="actbtn ghost" onclick="roomClearBets()">Clear</button>
+      <button class="actbtn primary" id="rlockbtn" onclick="roomLockBets()">Lock in bets</button>
+    </div>
+    <div class="roomhint" id="rhint">Place chips on the felt, then lock in before the roll.</div>`;
+  $("rfelt").addEventListener("click", e => { const cell = e.target.closest(".fcell"); if (!cell || roomLocked) return; roomBet(cell.dataset.bet); roomRenderFeltChips(); });
+  roomDrawDiceIdle();
+  roomPaintPlayers(d);
+  if (roomLocked) roomMarkLocked();
+  roomRenderBet(); roomRenderFeltChips();
+  roomPaintCountdown(d);
+}
+function roomDrawDiceIdle(){ const cv = $("rdice"); if (cv && typeof sbDraw === "function") sbDraw([1,1,1], [0,0,0], [0,0,0], null, cv.getContext("2d"), cv); }
+function diceResult(d){
+  const r = d.result, dice = r.outcome, sum = dice[0]+dice[1]+dice[2], isTrip = dice[0]===dice[1] && dice[1]===dice[2];
+  $("roomstage").dataset.phase = "done";
+  $("roomstage").innerHTML = `
+    <div class="roomtop"><h2 class="gametitle">Dice</h2></div>
+    <div class="rresult">
+      <canvas id="rdice" width="380" height="150"></canvas>
+      <div class="rland" id="rland"></div>
+      <div class="rpayout" id="rpayout" style="visibility:hidden">${roomPayoutHTML(d)}</div>
+      <button class="actbtn primary" id="ragain" style="visibility:hidden" onclick="roomBackToLobby()">Back to the lobby</button>
+    </div>`;
+  roomRollDiceTo(dice, () => {
+    const l = $("rland"); if (l) l.textContent = `${dice.join(" · ")} = ${sum}${isTrip ? " · TRIPLE" : ""}`;
+    const p = $("rpayout"); if (p) p.style.visibility = "visible";
+    const a = $("ragain"); if (a) a.style.visibility = "visible";
+    const me = user && user.uid, iWon = r.winners && r.winners.includes(me);
+    if (iWon && typeof SND !== "undefined" && SND.win) SND.win();
+    if (typeof refreshChips === "function") refreshChips();
+  });
+}
+/* port of sicbo's roll animation onto the room canvas, landing on the server's dice */
+function roomRollDiceTo(result, done){
+  const cv = $("rdice"); if (!cv || typeof sbDraw !== "function"){ done(); return; }
+  const ctx = cv.getContext("2d"); let t = 0; const dur = 70;
+  (function anim(){
+    t++;
+    if (t % 7 === 1 && t/dur < 0.72 && typeof SND !== "undefined" && SND.dice) SND.dice();
+    const k = t/dur, settle = Math.min(1, k);
+    const faces = [0,1,2].map(i => k > 0.72 + i*0.09 ? result[i] : 1 + (Math.random()*6|0));
+    const rots = [0,1,2].map(i => k > 0.72 + i*0.09 ? 0 : Math.sin(t*.5+i*2)*(1-settle)*.6);
+    const lifts = [0,1,2].map(i => k > 0.72 + i*0.09 ? 0 : Math.abs(Math.sin(t*.28+i*1.4))*26*(1-settle));
+    sbDraw(faces, rots, lifts, [k>0.96, k>0.96, k>0.96], ctx, cv);
+    if (t < dur) requestAnimationFrame(anim); else { sbDraw(result, [0,0,0], [0,0,0], [true,true,true], ctx, cv); done(); }
+  })();
+}
+
+/* ════════ BACCARAT — pick a side, shared deal, reuse cardEl ════════ */
+function bacBetting(d){
+  if ($("roomstage").dataset.phase === "betting"){ roomPaintCountdown(d); roomPaintPlayers(d); return; }
+  $("roomstage").dataset.phase = "betting";
+  roomBetMode = "side"; roomStake = d.stake;
+  roomLocked = !!(d.bets && user && d.bets[user.uid]);
+  if (roomLocked && d.bets[user.uid]) roomSide = d.bets[user.uid].side;
+  $("roomstage").innerHTML = `
+    <div class="roomtop"><h2 class="gametitle">Baccarat · ⛁ ${fmt(d.stake)} ante</h2><div class="rtimer" id="rtimer">--</div></div>
+    <div class="rplayers" id="rplayers"></div>
+    <div class="bacpick">
+      <button class="bacside" data-side="P" onclick="roomPickSide('P',this)">PLAYER<small>pays 2×</small></button>
+      <button class="bacside" data-side="B" onclick="roomPickSide('B',this)">BANKER<small>pays 1.95×</small></button>
+      <button class="bacside" data-side="T" onclick="roomPickSide('T',this)">TIE<small>pays 9×</small></button>
+    </div>
+    <div class="rbetbar">
+      <div class="rbudget">Your whole <b>${fmt(d.stake)}</b> ante rides on one side</div>
+      <button class="actbtn primary" id="rlockbtn" onclick="roomLockBets()">Lock it in</button>
+    </div>
+    <div class="roomhint" id="rhint">Pick Player, Banker or Tie — best bet on the shared deal takes the pot.</div>`;
+  roomPaintPlayers(d);
+  if (roomSide){ const b = document.querySelector(`.bacside[data-side="${roomSide}"]`); if (b) b.classList.add("sel"); }
+  if (roomLocked) roomMarkLocked();
+  roomPaintCountdown(d);
+}
+function roomPickSide(s, btn){ if (roomLocked) return; roomSide = s; document.querySelectorAll(".bacside").forEach(b => b.classList.remove("sel")); btn.classList.add("sel"); if (typeof SND !== "undefined" && SND.tick) SND.tick(); }
+function bacResult(d){
+  const r = d.result, deal = r.outcome, sideName = { P: "Player", B: "Banker", T: "Tie" }[deal.result];
+  $("roomstage").dataset.phase = "done";
+  $("roomstage").innerHTML = `
+    <div class="roomtop"><h2 class="gametitle">Baccarat</h2></div>
+    <div class="rresult">
+      <div class="bactable">
+        <div class="bachand"><div class="baclbl">PLAYER · <b>${deal.pv}</b></div><div class="bacrow" id="bacph"></div></div>
+        <div class="bachand"><div class="baclbl">BANKER · <b>${deal.bv}</b></div><div class="bacrow" id="bacbh"></div></div>
+      </div>
+      <div class="rland">${deal.result === "T" ? `Tie at ${deal.pv}` : `${sideName} wins ${Math.max(deal.pv,deal.bv)}–${Math.min(deal.pv,deal.bv)}`}${deal.natural ? " · natural" : ""}</div>
+      <div class="rpayout">${roomPayoutHTML(d)}</div>
+      <button class="actbtn primary" onclick="roomBackToLobby()">Back to the lobby</button>
+    </div>`;
+  if (typeof cardEl === "function"){
+    (deal.P || []).forEach((c, i) => setTimeout(() => { const el = $("bacph"); if (el) el.appendChild(cardEl(c)); }, 220*i));
+    (deal.B || []).forEach((c, i) => setTimeout(() => { const el = $("bacbh"); if (el) el.appendChild(cardEl(c)); }, 220*i + 110));
+  }
+  const me = user && user.uid, iWon = r.winners && r.winners.includes(me);
+  if (iWon && typeof SND !== "undefined" && SND.win) setTimeout(() => SND.win(), 700);
+  if (typeof refreshChips === "function") refreshChips();
+}
+
 /* ── teardown ── */
 function roomTeardown(){
   if (roomOpenRef){ roomOpenRef.off(); roomOpenRef = null; }
   if (roomLiveRef){ roomLiveRef.off(); roomLiveRef = null; }
   if (roomConnRef){ roomConnRef.onDisconnect().cancel(); roomConnRef.set(false).catch(() => {}); roomConnRef = null; }
   if (roomTick){ clearInterval(roomTick); roomTick = 0; }
-  roomId = null; roomHost = false; roomBets = {}; roomLocked = false; roomLivePhase = null;
+  roomId = null; roomHost = false; roomBets = {}; roomSide = null; roomBetMode = "board"; roomLocked = false; roomLivePhase = null;
   const st = $("roomstage"); if (st) st.dataset.phase = "";
 }
 

@@ -83,7 +83,8 @@
       <div id="roomauthmsg" style="display:none;text-align:center;color:#a89878;font-style:italic;font-family:'Playfair Display',serif">Sign in to take a seat — the table needs a name.</div>
       <div id="roomcreate">
         <div class="betrow" style="justify-content:center;flex-wrap:wrap">
-          <span class="rrgame" style="align-self:center">Roulette</span>
+          <label>Game</label>
+          <select id="roomgamein" class="betinput" style="width:auto"><option value="roulette">Roulette</option><option value="dice">Dice</option><option value="baccarat">Baccarat</option></select>
           <label>Ante</label><input class="betinput" id="roomstakein" type="number" min="50" value="100">
           <label>Seats</label>
           <select id="roomseatsin" class="betinput" style="width:auto"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option></select>

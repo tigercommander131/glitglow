@@ -477,7 +477,6 @@ exports.tnResults = callable(async (data, ctx) => {
    each player's betting budget — bets summing over it forfeit the round,
    so the open bet-write rule can't be abused to "buy" a win.
    ════════════════════════════════════════════════════════════════════ */
-const ROOM_GAMES = new Set(["roulette"]);
 const ROOM_MIN_STAKE = 50, ROOM_MAX_SEATS = 6, ROOM_BET_MS = 30000;
 const RWHEEL = [0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
 const RREDS = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
@@ -502,12 +501,67 @@ function roulettePayout(board, n){
 }
 function boardTotal(board){ return Object.values(board || {}).reduce((a, v) => a + (Math.max(0, Math.floor(Number(v)) || 0)), 0); }
 
+/* ── Dice / Sic Bo (ported from js/games/sicbo.js) ── */
+const SB_TOTPAY = { 4:60, 5:30, 6:17, 7:12, 8:8, 9:6, 10:6, 11:6, 12:6, 13:8, 14:12, 15:17, 16:30, 17:60 };
+function diceRoll(seed){ const rng = mulberry32(hashStr("dice|" + seed)); return [0,0,0].map(() => 1 + (rng() * 6 | 0)); }
+function sicboPayout(board, dice){
+  if (!board) return 0;
+  const sum = dice[0] + dice[1] + dice[2], isTriple = dice[0] === dice[1] && dice[1] === dice[2];
+  let pay = 0;
+  for (const [k, raw] of Object.entries(board)){
+    const v = Math.max(0, Math.floor(Number(raw)) || 0); let mult = 0;
+    if (k === "small" && sum >= 4 && sum <= 10 && !isTriple) mult = 2;
+    else if (k === "big" && sum >= 11 && sum <= 17 && !isTriple) mult = 2;
+    else if (k === "triple" && isTriple) mult = 31;
+    else if (k.startsWith("dbl")){ const n = +k.slice(3); if (dice.filter(x => x === n).length >= 2) mult = 11; }
+    else if (k.startsWith("tot") && sum === +k.slice(3)) mult = (SB_TOTPAY[sum] || 0) + 1;
+    pay += v * mult;
+  }
+  return pay;
+}
+/* ── Baccarat (ported from js/games/baccarat.js) ── */
+const bacCardV = c => c.r === "A" ? 1 : ("JQK".includes(c.r) || c.r === "10") ? 0 : +c.r;
+function bacVal(h){ let v = 0; for (const c of h) v += bacCardV(c); return v % 10; }
+function baccaratDeal(seed){
+  const rng = mulberry32(hashStr("baccarat|" + seed)), draw = () => seededCard(rng);
+  const P = [draw()], B = [draw()]; P.push(draw()); B.push(draw());   // P1 B1 P2 B2
+  let pv = bacVal(P), bv = bacVal(B); const natural = pv >= 8 || bv >= 8; let p3 = null;
+  if (!natural){
+    if (pv <= 5){ p3 = draw(); P.push(p3); }
+    const p3v = p3 ? bacCardV(p3) : null; let bd;
+    if (p3 === null) bd = bv <= 5;
+    else if (bv <= 2) bd = true;
+    else if (bv === 3) bd = p3v !== 8;
+    else if (bv === 4) bd = p3v >= 2 && p3v <= 7;
+    else if (bv === 5) bd = p3v >= 4 && p3v <= 7;
+    else if (bv === 6) bd = p3v === 6 || p3v === 7;
+    else bd = false;
+    if (bd) B.push(draw());
+  }
+  pv = bacVal(P); bv = bacVal(B);
+  return { P, B, pv, bv, natural, result: pv > bv ? "P" : bv > pv ? "B" : "T" };
+}
+function baccaratPayout(side, result, ante){
+  if (!side) return 0;
+  if (side === result) return result === "P" ? ante * 2 : result === "B" ? Math.floor(ante * 1.95) : ante * 9;
+  if (result === "T" && (side === "P" || side === "B")) return ante;   // tie pushes P/B (ante kept) — splits the pot back when everyone's on the losing side
+  return 0;
+}
+
+/* per-game engine: outcome(seed) → the shared result; score(bet, outcome, ante) → a player's payout.
+   roomSettle below is game-agnostic — it ranks the scores and pays the pot to the best. */
+const ROOM_GAMES = {
+  roulette: { seats: 6, outcome: seed => spinPocket(seed),  score: (bet, o, stake) => boardTotal(bet && bet.board) > stake ? 0 : roulettePayout(bet && bet.board, o) },
+  dice:     { seats: 6, outcome: seed => diceRoll(seed),    score: (bet, o, stake) => boardTotal(bet && bet.board) > stake ? 0 : sicboPayout(bet && bet.board, o) },
+  baccarat: { seats: 6, outcome: seed => baccaratDeal(seed), score: (bet, o, stake) => baccaratPayout(bet && bet.side, o.result, stake) }
+};
+
 exports.roomCreate = callable(async (data, ctx) => {
   const uid = needAuth(ctx);
   const game = String(data.game || ""), name = String(data.name || "Player").slice(0, 24);
-  const seats = Math.min(ROOM_MAX_SEATS, Math.max(2, Math.floor(Number(data.seats) || 2)));
+  if (!ROOM_GAMES[game]) fail("invalid-argument", "Unknown game");
+  const seats = Math.min(ROOM_GAMES[game].seats, Math.max(2, Math.floor(Number(data.seats) || 2)));
   const stake = Math.floor(Number(data.stake));
-  if (!ROOM_GAMES.has(game)) fail("invalid-argument", "Unknown game");
   if (!Number.isFinite(stake) || stake < ROOM_MIN_STAKE || stake > 1e9) fail("invalid-argument", "Stake must be at least " + ROOM_MIN_STAKE);
   const chips = await moveChips(uid, -stake);
   const ref = db.ref("rooms/open").push();
@@ -595,14 +649,14 @@ exports.roomSettle = callable(async (data, ctx) => {
   const claim = await db.ref(`rooms/live/${id}/settled`).transaction(v => v ? undefined : true);
   if (!claim.committed){ const cur = (await db.ref(`rooms/live/${id}`).get()).val(); return { ...((cur && cur.result) || {}), already: true }; }
   const seed = (await db.ref(`roomseeds/${id}`).get()).val();
-  const n = spinPocket(seed);
+  const engine = ROOM_GAMES[live.game] || ROOM_GAMES.roulette;
+  const outcome = engine.outcome(seed);
   const bets = (await db.ref(`rooms/live/${id}/bets`).get()).val() || {};
   const seated = Object.keys(live.players);
   const scores = {};
   let best = -1;
   for (const p of seated){
-    const board = bets[p] && bets[p].board;
-    const score = boardTotal(board) > live.stake ? 0 : roulettePayout(board, n);   // over-budget bets forfeit
+    const score = Math.max(0, Math.floor(engine.score(bets[p], outcome, live.stake)) || 0);
     scores[p] = score;
     if (score > best) best = score;
   }
@@ -615,7 +669,7 @@ exports.roomSettle = callable(async (data, ctx) => {
     const profit = Math.max(0, share - live.stake);
     await Promise.all(winners.map(p => Promise.all([bumpPub(p, "roomWins", 1), bumpPub(p, "roomEarnings", profit)])));
   }
-  const result = { pocket: n, seed, scores, winners: payees, share, pot, dead: winners.length === 0, at: Date.now() };
+  const result = { game: live.game, outcome, seed, scores, winners: payees, share, pot, dead: winners.length === 0, at: Date.now() };
   await db.ref(`rooms/live/${id}`).update({ phase: "done", result });
   await db.ref(`roomseeds/${id}`).remove();
   await pushFeed({ type: "room", game: live.game, win: payees.map(p => live.players[p].name).join(", "), stake: live.stake, pot, seats: seated.length });

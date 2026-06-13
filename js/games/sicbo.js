@@ -42,31 +42,35 @@ const SB_PIPS = {
   4:[[-1,-1],[1,-1],[-1,1],[1,1]], 5:[[-1,-1],[1,-1],[0,0],[-1,1],[1,1]],
   6:[[-1,-1],[1,-1],[-1,0],[1,0],[-1,1],[1,1]]
 };
-function sbDrawDie(x, y, size, face, rot, glow){
-  sbx.save();
-  sbx.translate(x, y); sbx.rotate(rot);
-  if (glow){ sbx.shadowColor = "rgba(255,233,168,.95)"; sbx.shadowBlur = 24; }
-  else { sbx.shadowColor = "rgba(0,0,0,.55)"; sbx.shadowBlur = 10; }
+/* ctx is optional so the multiplayer table (js/social/rooms.js) can draw on its own
+   canvas; solo play passes neither and keeps the module context (behaviour unchanged) */
+function sbDrawDie(x, y, size, face, rot, glow, ctx){
+  ctx = ctx || sbx;
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(rot);
+  if (glow){ ctx.shadowColor = "rgba(255,233,168,.95)"; ctx.shadowBlur = 24; }
+  else { ctx.shadowColor = "rgba(0,0,0,.55)"; ctx.shadowBlur = 10; }
   const goldDie = typeof przDiceGold === "function" && przDiceGold();
-  const g = sbx.createLinearGradient(-size/2,-size/2,size/2,size/2);
+  const g = ctx.createLinearGradient(-size/2,-size/2,size/2,size/2);
   if (goldDie){ g.addColorStop(0,"#ffe9a8"); g.addColorStop(1,"#b8902e"); }
   else { g.addColorStop(0,"#fdf8ec"); g.addColorStop(1,"#e3d6b8"); }
-  sbx.fillStyle = g;
-  rounded(sbx, -size/2, -size/2, size, size, size*0.18); sbx.fill();
-  sbx.shadowBlur = 0;
-  if (glow){ sbx.strokeStyle = "#ffe9a8"; sbx.lineWidth = 2.5; rounded(sbx,-size/2,-size/2,size,size,size*0.18); sbx.stroke(); }
-  sbx.fillStyle = goldDie ? "#241500" : "#1a1a1a";
+  ctx.fillStyle = g;
+  rounded(ctx, -size/2, -size/2, size, size, size*0.18); ctx.fill();
+  ctx.shadowBlur = 0;
+  if (glow){ ctx.strokeStyle = "#ffe9a8"; ctx.lineWidth = 2.5; rounded(ctx,-size/2,-size/2,size,size,size*0.18); ctx.stroke(); }
+  ctx.fillStyle = goldDie ? "#241500" : "#1a1a1a";
   const off = size*0.26, pr = size*0.085;
   for (const [px,py] of SB_PIPS[face]){
-    sbx.beginPath(); sbx.arc(px*off, py*off, pr, 0, 7); sbx.fill();
+    ctx.beginPath(); ctx.arc(px*off, py*off, pr, 0, 7); ctx.fill();
   }
-  sbx.restore();
+  ctx.restore();
 }
-function sbDraw(faces, rots, lifts, glows){
-  sbx.clearRect(0,0,sbcv.width,sbcv.height);
+function sbDraw(faces, rots, lifts, glows, ctx, cv){
+  ctx = ctx || sbx; cv = cv || sbcv;
+  ctx.clearRect(0,0,cv.width,cv.height);
   const size = 66, cy = 76, xs = [86, 190, 294];
   for (let i=0;i<3;i++)
-    sbDrawDie(xs[i], cy - (lifts?lifts[i]:0), size, faces[i], rots?rots[i]:0, glows?glows[i]:false);
+    sbDrawDie(xs[i], cy - (lifts?lifts[i]:0), size, faces[i], rots?rots[i]:0, glows?glows[i]:false, ctx);
 }
 function sbRoll(){
   if (sbRolling) return;
