@@ -69,8 +69,33 @@
 <section class="view" id="view-arena">
   <div class="hubhead"><h1>The Arena</h1><p>play real people · winner takes the pot</p></div>
   <div class="tilegrid wrap arenagrid">
+    <button class="gtile arenatile" onclick="showView('rooms')"><div class="gicon">🎰</div><h3>Live Tables</h3><small>real-time rooms · sit down with up to 6 players · winner takes the pot</small></button>
     <button class="gtile arenatile" onclick="showView('duel')"><div class="gicon">⚡</div><h3>Duel Arena</h3><small>1v1 vs real players · six modes · winner takes both stakes</small></button>
     <button class="gtile arenatile" onclick="showView('tourney')"><div class="gicon">🏆</div><h3>Daily Tournament</h3><small>1,000 buy-in · same gauntlet for everyone · top 3 split the pot</small></button>
+  </div>
+</section>
+
+<!-- ════════ LIVE MULTIPLAYER ROOMS ════════ -->
+<section class="view tc" id="view-rooms">
+  <div class="gamebar"><button class="backbtn" onclick="showView('arena')">← Arena</button><h2 class="gametitle">Live Tables</h2></div>
+  <div class="gamebox">
+    <div class="panel" id="roomlobby">
+      <div id="roomauthmsg" style="display:none;text-align:center;color:#a89878;font-style:italic;font-family:'Playfair Display',serif">Sign in to take a seat — the table needs a name.</div>
+      <div id="roomcreate">
+        <div class="betrow" style="justify-content:center;flex-wrap:wrap">
+          <label>Game</label>
+          <select id="roomgamein" class="betinput" style="width:auto"><option value="roulette">Roulette</option><option value="dice">Dice</option><option value="baccarat">Baccarat</option></select>
+          <label>Ante</label><input class="betinput" id="roomstakein" type="number" min="50" value="100">
+          <label>Seats</label>
+          <select id="roomseatsin" class="betinput" style="width:auto"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option></select>
+          <button class="actbtn primary" onclick="roomCreate()">Open a table</button>
+        </div>
+        <p style="text-align:center;color:#a89878;font-size:.82rem;margin-top:8px;font-style:italic;font-family:'Playfair Display',serif">everyone antes · same wheel for the whole table · the best bet takes the pot</p>
+      </div>
+      <div class="sthead" style="margin-top:18px">Open Tables<small>sit down at one, or open your own</small></div>
+      <div id="roomlist"></div>
+    </div>
+    <div class="panel" id="roomstage" style="display:none"></div>
   </div>
 </section>
 
@@ -788,6 +813,7 @@
 <script src="js/games/scratch.js"></script>
 <script src="js/social/duel.js"></script>
 <script src="js/social/tournament.js"></script>
+<script src="js/social/rooms.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="js/fx/scenes.js"></script>
 

@@ -422,6 +422,7 @@ function showView(name){
   if (name === "stats") statsRender();
   if (name === "prizes") prizeRender();
   if (name === "duel" && typeof duelLobby === "function") duelLobby();
+  if (name === "rooms" && typeof roomsLobby === "function") roomsLobby();
   if (name === "tourney" && typeof tnInit === "function") tnInit();
   if (typeof updateBgScenes === "function") updateBgScenes(name);
   window.scrollTo({ top: 0 });
