@@ -563,6 +563,9 @@ function screenFlash(){ const f=$("flashlay"); f.classList.remove("on"); void f.
 renderChips(); tickBonus(); loadLeaderboard();
 if (!fbReady) escrowSweep(); // with Firebase, the auth callback runs the sweep once chips are authoritative
 
+/* stagger index for the casino-hub tile entrance — CSS reads var(--ti) */
+document.querySelectorAll("#view-casino .gtile").forEach((t, i) => t.style.setProperty("--ti", i));
+
 /* ════════ IDLE ATTRACT (casino hub, 30s idle) ════════ */
 const attractTg = document.querySelector("#view-casino .tilegrid");
 let lastAct = Date.now();

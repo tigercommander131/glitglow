@@ -345,10 +345,33 @@ exports.tnBegin = callable(async (data, ctx) => {
   return { day };
 });
 
-/* replay the gauntlet: same public day seed as the client, moves = hits per hand */
+/* the gauntlet game rotates on a fixed UTC-day schedule — deterministic on
+   both sides, no server state, and the client can show what's coming up */
+const TN_ROTATION = ["bj", "hilo"];
+const tnGameFor = day => TN_ROTATION[Math.floor(Date.parse(day + "T00:00:00Z") / 86400000) % TN_ROTATION.length];
+
+/* replay the gauntlet: same public day seed as the client.
+   bj:   moves = array of hits per hand
+   hilo: moves = string of h/l calls, one card stream, ties are kind */
 function gauntletReplay(day, moves){
   const rng = mulberry32(hashStr("gg-gauntlet-" + day));
+  const game = tnGameFor(day);
   let stack = TN_START;
+  if (game === "hilo"){
+    let cur = seededCard(rng);
+    const calls = String(moves || "").slice(0, TN_HANDS);
+    for (const c of calls){
+      if (stack < TN_BET) break;
+      if (c !== "h" && c !== "l") break;
+      stack -= TN_BET;
+      const next = seededCard(rng);
+      const good = c === "h" ? warRank(next) >= warRank(cur) : warRank(next) <= warRank(cur);
+      if (good) stack += TN_BET * 2;
+      cur = next;
+    }
+    return stack;
+  }
+  // blackjack
   for (let hand = 0; hand < TN_HANDS; hand++){
     if (stack < TN_BET) break;
     stack -= TN_BET;
@@ -372,7 +395,9 @@ function gauntletReplay(day, moves){
 exports.tnSubmit = callable(async (data, ctx) => {
   const uid = needAuth(ctx);
   const day = dayKey();
-  const moves = Array.isArray(data.moves) ? data.moves.slice(0, TN_HANDS) : [];
+  const moves = tnGameFor(day) === "hilo"
+    ? String(data.moves || "").slice(0, TN_HANDS)
+    : (Array.isArray(data.moves) ? data.moves.slice(0, TN_HANDS) : []);
   const score = gauntletReplay(day, moves);
   // only overwrite the tnBegin placeholder — never a finalized score
   // (read first: the transaction's null-cache run needs a server-truth fallback)
@@ -387,20 +412,52 @@ exports.tnSubmit = callable(async (data, ctx) => {
   return { day, score };
 });
 
-exports.tnClaim = callable(async (data, ctx) => {
-  const uid = needAuth(ctx);
-  const yday = dayKey(new Date(Date.now() - 86400000));
-  const v = (await db.ref(`tourney/${yday}`).get()).val();
-  if (!v || !v.scores || !v.players) fail("not-found", "No tournament yesterday");
+/* ── AUTO-SETTLEMENT — the claim button is dead; the house pays at rollover ──
+   Idempotent (transaction on tourney/$day/settled). Shares are normalized over
+   however many players actually scored, so no chips are ever burned:
+   3+ → 50/30/20 · 2 → 62.5/37.5 · 1 → 100% (their buy-in back). */
+async function tnSettleDay(day){
+  const ref = db.ref(`tourney/${day}`);
+  const v = (await ref.get()).val();
+  if (!v || !v.players || !v.scores) return { day, results: [], reason: "no event" };
+  if (v.claims){ // claim-era day: prizes were (or could have been) claimed manually — never double-pay
+    await ref.child("settled").set(true);
+    return { day, results: [], reason: "claim-era day" };
+  }
+  const lock = await ref.child("settled").transaction(x => x === null ? true : undefined);
+  if (!lock.committed) return { day, results: (v.results || []), reason: "already settled" };
   const rows = Object.entries(v.scores).map(([u, r]) => ({ uid: u, ...r })).sort((a, b) => b.score - a.score);
-  const rank = rows.findIndex(r => r.uid === uid);
-  if (rank < 0 || rank > 2) fail("failed-precondition", "You didn't place top 3");
   const pot = Object.keys(v.players).length * TN_BUYIN;
-  const share = Math.floor(pot * [0.5, 0.3, 0.2][rank]);
-  const res = await db.ref(`tourney/${yday}/claims/${uid}`).transaction(c => c == null ? share : undefined);
-  if (!res.committed) fail("already-exists", "Prize already claimed");
-  const chips = await moveChips(uid, +share);
-  if (rank === 0) await bumpPub(uid, "tourneyCrowns", 1);
-  await pushFeed({ type: "tourney", win: rows[rank].name || "Player", rank: rank + 1, stake: share });
-  return { share, rank: rank + 1, chips };
+  const base = [0.5, 0.3, 0.2].slice(0, Math.min(3, rows.length));
+  const norm = base.reduce((a, b) => a + b, 0);
+  const results = [];
+  for (let i = 0; i < base.length; i++){
+    const share = Math.floor(pot * base[i] / norm);
+    const r = rows[i];
+    try { await moveChips(r.uid, +share); } catch (e) { /* deleted account — skip payout, keep settling */ }
+    results.push({ uid: r.uid, name: r.name || "Player", rank: i + 1, score: r.score, share });
+    await db.ref(`users/${r.uid}/tourneyMsg`).set({ day, rank: i + 1, share }); // "you placed" banner, client clears it
+    if (i === 0) await bumpPub(r.uid, "tourneyCrowns", 1);
+    await pushFeed({ type: "tourney", win: r.name || "Player", rank: i + 1, stake: share });
+  }
+  await ref.child("results").set(results);
+  return { day, results };
+}
+
+/* fires daily at 00:05 UTC, settles the day that just closed */
+exports.tnRollover = functions.region(REGION).pubsub.schedule("5 0 * * *").timeZone("Etc/UTC")
+  .onRun(() => tnSettleDay(dayKey(new Date(Date.now() - 86400000))));
+
+/* yesterday's results for the client — also the lazy fallback if the scheduler
+   ever misses: first viewer after midnight triggers the (idempotent) settle */
+exports.tnResults = callable(async (data, ctx) => {
+  needAuth(ctx);
+  const yday = dayKey(new Date(Date.now() - 86400000));
+  const settled = (await db.ref(`tourney/${yday}/settled`).get()).val();
+  if (settled){
+    const results = (await db.ref(`tourney/${yday}/results`).get()).val() || [];
+    return { day: yday, game: tnGameFor(yday), results };
+  }
+  const r = await tnSettleDay(yday);
+  return { day: yday, game: tnGameFor(yday), results: r.results || [] };
 });

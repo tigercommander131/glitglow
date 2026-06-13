@@ -196,12 +196,26 @@ ok((await call("tnEnter", { name: "Alice" }, A.token)).error, "double entry reje
 ok((await call("tnSubmit", { moves: [0, 0] }, A.token)).error, "submit before begin rejected");
 ok(!(await call("tnBegin", { name: "Alice" }, A.token)).error, "begin locks attempt");
 ok((await call("tnBegin", { name: "Alice" }, A.token)).error, "second begin rejected");
-// local replay with the same kernel = expected score
+// local replay with the same kernel = expected score; game rotates by UTC day
 const utcKey = d => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 const dayKey = utcKey(new Date());
-const moves = [1, 0, 2, 0, 0, 1, 0, 0, 0, 0];
+const TN_ROT = ["bj", "hilo"];
+const tnGameFor = dk => TN_ROT[Math.floor(Date.parse(dk + "T00:00:00Z") / 86400000) % TN_ROT.length];
+const todayGame = tnGameFor(dayKey);
 function gauntletReplay(dk, mv){
   const g = mulberry32(hashStr("gg-gauntlet-" + dk)); let stack = 500;
+  if (tnGameFor(dk) === "hilo"){
+    let cur = seededCard(g);
+    for (const c of String(mv).slice(0, 10)){
+      if (stack < 50 || (c !== "h" && c !== "l")) break;
+      stack -= 50;
+      const next = seededCard(g);
+      const good = c === "h" ? warRank(next) >= warRank(cur) : warRank(next) <= warRank(cur);
+      if (good) stack += 100;
+      cur = next;
+    }
+    return stack;
+  }
   for (let h = 0; h < 10; h++){
     if (stack < 50) break;
     stack -= 50;
@@ -214,25 +228,30 @@ function gauntletReplay(dk, mv){
   }
   return stack;
 }
+const moves = todayGame === "hilo" ? "hlhhllhlhh" : [1, 0, 2, 0, 0, 1, 0, 0, 0, 0];
 r = await call("tnSubmit", { moves }, A.token);
-ok(r.score === gauntletReplay(dayKey, moves), `server replay matches local (server ${r.score} vs local ${gauntletReplay(dayKey, moves)}, day ${dayKey}, r=${JSON.stringify(r)})`);
-ok((await call("tnSubmit", { moves: Array(10).fill(0) }, A.token)).error, "resubmit rejected");
+ok(r.score === gauntletReplay(dayKey, moves), `server replay matches local for ${todayGame} (server ${r.score} vs local ${gauntletReplay(dayKey, moves)})`);
+ok((await call("tnSubmit", { moves }, A.token)).error, "resubmit rejected");
 ok((await adminRead(`tourney/${dayKey}/scores/${A.uid}`)).score === r.score, "server wrote the score");
 
-console.log("— tournament claim (seeded yesterday) —");
+console.log("— tournament auto-settlement (seeded yesterday) —");
 const yKey = utcKey(new Date(Date.now() - 86400000));
 await adminWrite(`tourney/${yKey}`, {
   players: { [A.uid]: { name: "Alice", at: 1 }, [B.uid]: { name: "Bob", at: 1 } },
   scores: { [A.uid]: { name: "Alice", score: 900, final: true }, [B.uid]: { name: "Bob", score: 700, final: true } }
 });
-const beforeClaim = await chipsOf(A);
-r = await call("tnClaim", {}, A.token);
-ok(r.share === 1000 && r.rank === 1, `rank-1 claim pays 50% of pot (${r.share})`);
-ok(await chipsOf(A) === beforeClaim + 1000, "claim chips landed");
-ok((await call("tnClaim", {}, A.token)).error, "double claim rejected");
+const beforeSettle = { a: await chipsOf(A), b: await chipsOf(B) };
+// 2 scored players → shares normalize 50/30 → 62.5% / 37.5% of the 2000 pot
+r = await call("tnResults", {}, A.token);
+ok(r.results && r.results.length === 2, "lazy settle returns podium");
+ok(r.results[0].uid === A.uid && r.results[0].share === 1250, `rank 1 share normalized (${r.results[0] && r.results[0].share})`);
+ok(r.results[1].share === 750, "rank 2 share normalized");
+ok(await chipsOf(A) === beforeSettle.a + 1250 && await chipsOf(B) === beforeSettle.b + 750, "podium paid automatically");
+r = await call("tnResults", {}, B.token);
+ok(r.results.length === 2 && await chipsOf(A) === beforeSettle.a + 1250, "second settle call is a no-op (idempotent)");
 ok(await adminRead(`users/${A.uid}/pub/tourneyCrowns`) === 1, "crown recorded server-side");
-r = await call("tnClaim", {}, B.token);
-ok(r.share === 600 && r.rank === 2, "rank-2 claim pays 30%");
+ok((await adminRead(`users/${A.uid}/tourneyMsg`)).rank === 1, "'you placed' banner queued for winner");
+ok(Object.values(await adminRead("feed") || {}).some(e => e.type === "tourney" && e.win === "Alice"), "podium posted to feed");
 
 console.log(`\n${pass} passed, ${failures.length} failed`);
 if (failures.length){ console.log("FAILED:\n  " + failures.join("\n  ")); process.exit(1); }

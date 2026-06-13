@@ -160,21 +160,11 @@ canvas{display:block;touch-action:none}
 .tc .gtile>*{position:relative;z-index:1}
 .tc .gtile:hover{box-shadow:0 14px 36px rgba(0,0,0,.6),0 0 0 1px var(--gold),0 18px 40px -8px rgba(201,168,76,.18)}
 /* curtains-open stagger entrance */
-#view-casino.on .gtile{opacity:0;animation:tilein .55s cubic-bezier(.2,.9,.3,1) forwards,goldborder 6s ease-in-out infinite}
+/* --ti is set per-tile by core.js, so EVERY tile staggers no matter how many
+   games exist (the old hardcoded nth-child(1..13) left tiles 14+ popping in flat) */
+#view-casino.on .gtile{opacity:0;animation:tilein .55s cubic-bezier(.2,.9,.3,1) forwards,goldborder 6s ease-in-out infinite;
+  animation-delay:calc(.03s + var(--ti,0)*.055s),0s}
 @keyframes tilein{from{opacity:0;transform:translateY(30px) scale(.97)}to{opacity:1;transform:none}}
-#view-casino.on .gtile:nth-child(1){animation-delay:.03s,0s}
-#view-casino.on .gtile:nth-child(2){animation-delay:.09s,0s}
-#view-casino.on .gtile:nth-child(3){animation-delay:.15s,0s}
-#view-casino.on .gtile:nth-child(4){animation-delay:.21s,0s}
-#view-casino.on .gtile:nth-child(5){animation-delay:.27s,0s}
-#view-casino.on .gtile:nth-child(6){animation-delay:.33s,0s}
-#view-casino.on .gtile:nth-child(7){animation-delay:.39s,0s}
-#view-casino.on .gtile:nth-child(8){animation-delay:.45s,0s}
-#view-casino.on .gtile:nth-child(9){animation-delay:.51s,0s}
-#view-casino.on .gtile:nth-child(10){animation-delay:.57s,0s}
-#view-casino.on .gtile:nth-child(11){animation-delay:.63s,0s}
-#view-casino.on .gtile:nth-child(12){animation-delay:.69s,0s}
-#view-casino.on .gtile:nth-child(13){animation-delay:.75s,0s}
 /* zoom-through-the-felt entrance for game views */
 .view.on.gzoom{animation:gzoom .42s cubic-bezier(.25,.9,.3,1)}
 @keyframes gzoom{0%{opacity:0;transform:scale(1.045)}55%{opacity:1;transform:scale(.996)}100%{transform:scale(1)}}
@@ -683,6 +673,19 @@ body.felt-noir .tc{--felt:#15151a;--felt2:#1f1f26}
   #tixbal{font-size:.85rem;padding:5px 10px}
   #bailoutbtn{font-size:.7rem;padding:6px 9px}
 }
+/* phone-width top nav: Account lives in the bottom nav, jackpot in the games —
+   shed both here so the wallet row actually fits without sideways scroll */
+@media(max-width:560px){
+  #topnav{gap:6px;padding:8px 10px}
+  #topnav #authbtn{display:none}
+  #topnav #jackbal{display:none} /* base #jackbal rule is later in the file — needs the extra specificity */
+  #logo{font-size:1.05rem}
+  #logo span{font-size:.85rem}
+  #chipbal{font-size:.85rem;padding:5px 9px;gap:5px}
+  #bonusbtn{font-size:.72rem;padding:6px 9px}
+  #lbtable th,#lbtable td{padding:8px 6px;font-size:.8rem}
+  .sbgrid{min-width:0}
+}
 
 /* ════════ JACKPOT TICKER ════════ */
 #jackbal{display:flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:1rem;
@@ -736,6 +739,21 @@ body.felt-noir .tc{--felt:#15151a;--felt2:#1f1f26}
 .dueltag.crash{border:1px solid rgba(232,207,138,.6);color:#e8cf8a}
 
 /* ════════ TOURNAMENT ════════ */
+.tnsteps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.tnsteps>div{padding:12px 14px;border-radius:12px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.22)}
+.tnsteps b{display:block;color:#e8cf8a;font-size:.85rem;letter-spacing:.06em;margin-bottom:4px}
+.tnsteps span{color:#a89878;font-size:.8rem;line-height:1.35;display:block}
+@media(max-width:640px){.tnsteps{grid-template-columns:1fr}}
+.tnhead{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:8px}
+.tnhead small{display:block;color:#a89878;font-size:.68rem;letter-spacing:.14em;margin-bottom:3px}
+.tnhead b{font-family:'Playfair Display',serif;color:#e8cf8a;font-size:1.3rem}
+.tnhead #tnclock{font-family:'JetBrains Mono',monospace;color:#ffe9a8;font-variant-numeric:tabular-nums}
+.tnhead i{display:block;color:#6e6250;font-size:.74rem;font-style:italic;margin-top:2px}
+#tnprizes{text-align:center;color:#d8cba0;font-family:'JetBrains Mono',monospace;font-size:.85rem;margin:4px 0 12px;letter-spacing:.02em}
+#tnbanner{margin-bottom:14px;padding:14px 18px;border-radius:12px;text-align:center;font-size:1.02rem;color:#ffe9a8;
+  background:linear-gradient(135deg,rgba(201,168,76,.22),rgba(139,26,26,.18));border:1px solid rgba(201,168,76,.6);
+  box-shadow:0 0 24px rgba(201,168,76,.25);animation:vin .4s ease}
+#tnyest .duelrow .dl{align-items:center}
 #tnboard{width:100%;border-collapse:collapse;margin:10px 0}
 #tnboard td,#tnboard th{padding:8px 12px;font-family:'JetBrains Mono',monospace;font-size:.85rem;border-bottom:1px solid rgba(255,255,255,.06);color:#d8cba0}
 #tnboard th{font-family:'Playfair Display',serif;font-style:italic;color:#a89878;text-align:left;font-weight:600;border-bottom:1px solid rgba(201,168,76,.3)}

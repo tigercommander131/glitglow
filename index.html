@@ -221,17 +221,24 @@
 
 <!-- ════════ DAILY TOURNAMENT ════════ -->
 <section class="view tc" id="view-tourney">
-  <div class="gamebar"><button class="backbtn" onclick="showView('casino')">← Floor</button><h2 class="gametitle">Dealer's Gauntlet</h2></div>
+  <div class="gamebar"><button class="backbtn" onclick="showView('casino')">← Floor</button><h2 class="gametitle">Daily Tournament</h2></div>
   <div class="gamebox">
     <div class="panel">
-      <p style="text-align:center;color:#a89878;font-style:italic;font-family:'Playfair Display',serif">
-        Buy in for <b style="color:#e8cf8a">1,000 chips</b>. One run: 10 hands of blackjack, 500-chip stack, 50 a hand, hit or stand only.
-        Everyone draws from the same shoe. Top three split the pot <b style="color:#e8cf8a">50 / 30 / 20</b> at day's end.</p>
+      <div id="tnbanner" style="display:none"></div>
+      <div class="tnsteps">
+        <div><b>1 · Buy in</b><span>1,000 chips into the shared pot</span></div>
+        <div><b>2 · One run</b><span id="tnstepgame">everyone plays the exact same cards</span></div>
+        <div><b>3 · Get paid</b><span>top 3 split the pot at midnight UTC — automatically</span></div>
+      </div>
+      <div class="tnhead">
+        <div><small>TODAY'S GAME</small><b id="tngamename">—</b><i id="tntomorrow"></i></div>
+        <div><small>ENDS IN</small><b id="tnclock" class="mono">—</b></div>
+      </div>
       <div class="tnpot" id="tnpot">—</div>
+      <div id="tnprizes"></div>
       <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap">
         <button class="actbtn primary" id="tnenter" onclick="tnEnter()">Enter · −1,000</button>
         <button class="actbtn danger" id="tnplay" onclick="tnPlay()" style="display:none">Play Your Run</button>
-        <button class="actbtn primary" id="tnclaim" onclick="tnClaim()" style="display:none">Claim Yesterday's Prize</button>
       </div>
       <div id="tnrun" style="display:none;margin-top:16px">
         <div class="bigstat" style="display:flex;justify-content:center;gap:26px;margin:10px 0;font-family:'Orbitron',sans-serif">
@@ -247,8 +254,21 @@
         </div>
         <div class="msg" id="tnmsg"></div>
       </div>
-      <div class="sthead" style="margin-top:18px">Today's Board<small id="tnsub">live standings — settles at midnight</small></div>
-      <table id="tnboard"><thead><tr><th>#</th><th>Player</th><th>Final Stack</th></tr></thead><tbody id="tnbody"></tbody></table>
+      <div id="tnrunhl" style="display:none;margin-top:16px">
+        <div class="bigstat" style="display:flex;justify-content:center;gap:26px;margin:10px 0;font-family:'Orbitron',sans-serif">
+          <span>CALL <b id="tnhlround">1</b>/10</span><span>STACK <b id="tnhlstack">500</b></span>
+        </div>
+        <div class="hand" style="justify-content:center" id="tnhlcard"></div>
+        <div style="display:flex;justify-content:center;gap:10px;margin-top:12px">
+          <button class="actbtn primary" onclick="tnHiloCall('h')">Higher ▲</button>
+          <button class="actbtn primary" onclick="tnHiloCall('l')">Lower ▼</button>
+        </div>
+        <div class="msg" id="tnhlmsg"></div>
+      </div>
+      <div class="sthead" style="margin-top:18px">Today's Board<small id="tnsub">live standings · prizes shown are live projections</small></div>
+      <table id="tnboard"><thead><tr><th>#</th><th>Player</th><th>Final Stack</th><th>Prize</th></tr></thead><tbody id="tnbody"></tbody></table>
+      <div class="sthead" style="margin-top:18px">Yesterday's Podium<small>paid automatically at rollover</small></div>
+      <div id="tnyest"></div>
     </div>
   </div>
 </section>
