@@ -20,13 +20,14 @@
   <div class="navpills">
     <button class="pill" data-nav="casino" onclick="showView('casino')">Casino</button>
     <button class="pill arc" data-nav="arcade" onclick="showView('arcade')">Arcade</button>
+    <button class="pill arena" data-nav="arena" onclick="showView('arena')">Arena</button>
     <button class="pill" data-nav="leaderboard" onclick="showView('leaderboard')">Leaderboard</button>
     <button class="pill" data-nav="stats" onclick="showView('stats')">Stats</button>
   </div>
   <div id="navspacer"></div>
   <div id="chipbal"><div class="chipstack"><i></i><i></i><i></i></div><span id="chipnum">1,000</span></div>
   <button id="tixbal" onclick="showView('prizes')" title="Tickets — spend at the Prize Counter">🎟 <span id="tixnum">0</span></button>
-  <button id="jackbal" onclick="showView('casino')" title="Progressive jackpot — every losing bet feeds it. Hit 7·7·7 on the slots or land the lucky drop on any bet of 100+.">💰 <span id="jacknum">5,000</span></button>
+  <button id="jackbal" onclick="showView('casino')" title="Progressive jackpot — the shared house pot every losing bet feeds. Hit 7·7·7 on the slots or land the lucky drop on any bet of 100+. This is the pot, not your balance."><span class="jlabel">💰 Jackpot</span><span id="jacknum">5,000</span></button>
   <button id="bailoutbtn" onclick="bailout()" style="display:none" title="House credit — only for the broke">🆘 +1,000</button>
   <button id="bonusbtn" onclick="claimBonus()">+150 Bonus</button>
   <button id="mutebtn" onclick="toggleMute()" title="Sound on/off">🔊</button>
@@ -38,23 +39,38 @@
 <section class="view on" id="view-home">
   <div class="homehero">
     <h1><em>Gilt</em> &amp; <span class="glow">GLOW</span></h1>
-    <p>Velvet tables downstairs. Neon machines upstairs. One bankroll.</p>
+    <p>Velvet tables. Neon cabinets. A live Arena where you play real people. One bankroll across all three.</p>
   </div>
   <div class="zonegrid">
     <div class="zonecard zc-casino" onclick="showView('casino')">
       <div class="deco">♠ ♥ ♣ ♦<small>est. midnight · table limits apply</small></div>
       <h2>The Casino</h2>
-      <p>Ten tables on the midnight floor — blackjack, roulette, slots, plinko and more.</p>
+      <p>Sixteen games on the midnight floor — blackjack, roulette, slots, plinko, baccarat and more.</p>
       <button class="go">Enter the floor</button>
+    </div>
+    <div class="zonecard zc-arena" onclick="showView('arena')">
+      <div class="deco arenadeco">⚔ ⚡ 🏆<small>1v1 duels · daily tournament</small></div>
+      <h2>The Arena</h2>
+      <p>Stake your chips against real players — six duel modes and a daily gauntlet. Winner takes the pot.</p>
+      <button class="go">Pick a fight</button>
     </div>
     <div class="zonecard zc-arcade" onclick="showView('arcade')">
       <h2>THE ARCADE</h2>
-      <p>Three cabinets humming since 1986. Snake, Breakout, Tetris.</p>
+      <p>Eight cabinets humming since 1986 — Snake, Tetris, Asteroids, Missile Command and more.</p>
       <button class="go">INSERT COIN</button>
     </div>
   </div>
   <div id="lbteaser">
     <div class="strip" id="teasestrip"><div class="tease">Leaderboard loading…</div></div>
+  </div>
+</section>
+
+<!-- ════════ ARENA HUB ════════ -->
+<section class="view" id="view-arena">
+  <div class="hubhead"><h1>The Arena</h1><p>play real people · winner takes the pot</p></div>
+  <div class="tilegrid wrap arenagrid">
+    <button class="gtile arenatile" onclick="showView('duel')"><div class="gicon">⚡</div><h3>Duel Arena</h3><small>1v1 vs real players · six modes · winner takes both stakes</small></button>
+    <button class="gtile arenatile" onclick="showView('tourney')"><div class="gicon">🏆</div><h3>Daily Tournament</h3><small>1,000 buy-in · same gauntlet for everyone · top 3 split the pot</small></button>
   </div>
 </section>
 
@@ -713,6 +729,7 @@
   <button class="bnbtn" data-nav="home" onclick="showView('home')"><span class="ic">⌂</span>Home</button>
   <button class="bnbtn" data-nav="casino" onclick="showView('casino')"><span class="ic">♠</span>Casino</button>
   <button class="bnbtn" data-nav="arcade" onclick="showView('arcade')"><span class="ic">▣</span>Arcade</button>
+  <button class="bnbtn" data-nav="arena" onclick="showView('arena')"><span class="ic">⚔</span>Arena</button>
   <button class="bnbtn" data-nav="leaderboard" onclick="showView('leaderboard')"><span class="ic">★</span>Ranks</button>
   <button class="bnbtn" data-nav="stats" onclick="showView('stats')"><span class="ic">◆</span>Stats</button>
   <button class="bnbtn" data-nav="account" onclick="authBtnClick()"><span class="ic">◍</span>Account</button>
